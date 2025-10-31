@@ -172,19 +172,35 @@ function Menu() {
   });
 
   const addToCart = (item) => {
-    const existingItem = cart.find(i => i.id === item.id);
-    if (existingItem) {
-      setCart(cart.map(i => 
-        i.id === item.id 
-          ? { ...i, quantity: i.quantity + 1 }
-          : i
-      ));
-      toast.success(`${item.name} quantity increased`, { duration: 1000 });
-    } else {
-      setCart([...cart, { ...item, menuItemId: item.id, quantity: 1 }]);
-      toast.success(`${item.name} added to cart`, { duration: 1000, icon: '🛒' });
-    }
-  };
+  console.log('🛒 Adding to cart:', {
+    name: item.name,
+    id: item.id,
+    idType: typeof item.id,
+    fullItem: item
+  });
+  
+  const existingItem = cart.find(i => i.id === item.id);
+  if (existingItem) {
+    setCart(cart.map(i => 
+      i.id === item.id 
+        ? { ...i, quantity: i.quantity + 1 }
+        : i
+    ));
+    toast.success(`${item.name} quantity increased`, { duration: 1000 });
+  } else {
+    // ✅ Ensure we're storing the correct ID
+    const cartItem = {
+      ...item,
+      menuItemId: item.id, // Redundant but safe
+      quantity: 1
+    };
+    
+    console.log('📦 Cart item created:', cartItem);
+    
+    setCart([...cart, cartItem]);
+    toast.success(`${item.name} added to cart`, { duration: 1000, icon: '🛒' });
+  }
+};
 
   const removeFromCart = (itemId) => {
     const existingItem = cart.find(i => i.id === itemId);
@@ -229,201 +245,170 @@ function Menu() {
   // ============================================
   // ENHANCED PLACE ORDER (STEP 4)
   // ============================================
-  const placeOrder = async () => {
-    if (cart.length === 0) {
-      toast.error('Cart is empty');
-      return;
-    }
+const placeOrder = async () => {
+  if (cart.length === 0) {
+    toast.error('Cart is empty');
+    return;
+  }
 
-    setOrdering(true);
+  setOrdering(true);
+  
+  try {
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🛒 DETAILED CART ANALYSIS');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('Cart Items Count:', cart.length);
+    console.log('Table Number:', tableNumber);
     
-    try {
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('🛒 CART ANALYSIS');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('Cart Items Count:', cart.length);
-      console.log('Table Number:', tableNumber);
-      console.log('Existing Order:', existingOrder ? existingOrder.orderNumber : 'None');
+    cart.forEach((item, index) => {
+      console.log(`\n📦 Cart Item ${index + 1}:`);
+      console.log('  Name:', item.name);
+      console.log('  ID:', item.id);
+      console.log('  ID Type:', typeof item.id);
+      console.log('  ID Length:', item.id?.length);
+      console.log('  Is UUID format:', /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id));
+      console.log('  Price:', item.price);
+      console.log('  Quantity:', item.quantity);
+      console.log('  Full Item:', item);
+    });
+    
+    // Prepare order data
+    const orderData = {
+      tableNumber: parseInt(tableNumber),
+      items: cart.map(item => ({
+        menuItemId: item.id,
+        quantity: item.quantity
+      })),
+      type: 'dine-in'
+    };
+    
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('📤 ORDER PAYLOAD');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log(JSON.stringify(orderData, null, 2));
+    
+    // 🔍 CRITICAL: Validate with server
+    console.log('\n🔍 VALIDATING WITH SERVER...');
+    
+    const API_BASE = import.meta.env.DEV 
+      ? 'http://localhost:5000' 
+      : 'https://hotel-management-system-2lsk.onrender.com';
+    
+    console.log('Validation URL:', `${API_BASE}/api/debug/validate-order`);
+    
+    const validateResponse = await fetch(`${API_BASE}/api/debug/validate-order`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(orderData)
+    });
+    
+    const validation = await validateResponse.json();
+    
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ VALIDATION RESPONSE');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('Valid:', validation.valid);
+    console.log('Full Response:', JSON.stringify(validation, null, 2));
+    
+    if (!validation.valid) {
+      console.error('\n❌ VALIDATION FAILED!');
+      console.error('Errors:', validation.errors);
       
-      cart.forEach((item, index) => {
-        console.log(`\nItem ${index + 1}:`, {
-          id: item.id,
-          name: item.name,
-          idType: typeof item.id,
-          idLength: item.id?.length,
-          quantity: item.quantity,
-          price: item.price,
-          category: item.category
-        });
+      // Show detailed comparison
+      console.error('\n🔍 ITEM-BY-ITEM COMPARISON:');
+      validation.items?.forEach((item, index) => {
+        console.error(`\nItem ${index}:`);
+        console.error('  Sent ID:', item.sentId);
+        console.error('  Exists in DB:', item.exists);
+        
+        if (!item.exists) {
+          console.error('  ❌ NOT FOUND IN DATABASE');
+          console.error('  Error:', item.error);
+        } else {
+          console.error('  ✅ FOUND:', item.menuItem?.name);
+        }
       });
       
-      // Prepare order data
-      const orderData = {
-        tableNumber: parseInt(tableNumber),
-        items: cart.map(item => ({
-          menuItemId: item.id, // Use item.id which is the UUID from database
-          quantity: item.quantity
-        })),
-        type: 'dine-in'
-      };
+      // Get all available IDs from server
+      console.error('\n📋 FETCHING ALL AVAILABLE MENU ITEMS...');
+      const menuResponse = await fetch(`${API_BASE}/api/debug/menu-ids`);
+      const menuData = await menuResponse.json();
       
-      console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📤 ORDER PAYLOAD TO BE SENT');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log(JSON.stringify(orderData, null, 2));
+      console.error('\n📦 AVAILABLE IN DATABASE:');
+      menuData.items?.forEach((dbItem, index) => {
+        console.error(`  ${index + 1}. ${dbItem.name}:`);
+        console.error('     ID:', dbItem.id);
+        console.error('     Matches cart?', cart.some(c => c.id === dbItem.id));
+      });
       
-      // 🔍 VALIDATE WITH SERVER BEFORE CREATING ORDER
-      console.log('\n🔍 Validating order with server...');
+      const errorMsg = `Validation failed:\n\n${validation.errors.join('\n')}`;
+      toast.error('Order validation failed');
+      alert(`❌ ORDER VALIDATION FAILED\n\n${errorMsg}\n\n📋 Check console for detailed comparison`);
       
-      const API_BASE = import.meta.env.DEV 
-        ? 'http://localhost:5000' 
-        : 'https://hotel-management-system-2lsk.onrender.com';
-      
-      console.log('Validation URL:', `${API_BASE}/api/debug/validate-order`);
-      
-      try {
-        const validateResponse = await fetch(`${API_BASE}/api/debug/validate-order`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(orderData)
-        });
-        
-        const validation = await validateResponse.json();
-        
-        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log('✅ SERVER VALIDATION RESULT');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log(JSON.stringify(validation, null, 2));
-        
-        if (!validation.valid) {
-          console.error('\n❌ VALIDATION FAILED!');
-          console.error('Errors:', validation.errors);
-          
-          // Show detailed error message
-          const errorDetails = validation.errors.join('\n');
-          
-          console.error('\n🔍 DEBUGGING INFO:');
-          validation.items?.forEach((item, index) => {
-            console.error(`Item ${index}:`, {
-              sentId: item.sentId,
-              exists: item.exists,
-              error: item.error,
-              menuItem: item.menuItem
-            });
-          });
-          
-          toast.error('Order validation failed. Check console for details.');
-          
-          // Show alert with error details
-          alert(`❌ ORDER VALIDATION FAILED\n\n${errorDetails}\n\nPlease check the browser console for more details.`);
-          
-          setOrdering(false);
-          return;
-        }
-        
-        if (validation.warnings?.length > 0) {
-          console.warn('\n⚠️  WARNINGS:', validation.warnings);
-        }
-        
-        console.log('\n✅ Validation passed! Proceeding with order creation...');
-        
-      } catch (validationError) {
-        console.error('\n❌ VALIDATION REQUEST FAILED:');
-        console.error('Error:', validationError);
-        console.error('This might be okay if debug endpoint is not deployed yet.');
-        console.warn('⚠️  Proceeding without validation...');
-      }
-      
-      // Proceed with order creation
-      console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('📝 CREATING ORDER...');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      
-      if (existingOrder) {
-        console.log('Adding items to existing order:', existingOrder.id);
-        
-        const response = await ordersAPI.addItems(
-          existingOrder.id, 
-          cart.map(item => ({
-            menuItemId: item.id,
-            quantity: item.quantity,
-          }))
-        );
-        
-        console.log('✅ Items added successfully:', response.data);
-        toast.success('Items added to your order! 🎉');
-      } else {
-        console.log('Creating new order for table:', tableNumber);
-        
-        const response = await ordersAPI.create(orderData);
-        
-        console.log('✅ Order created successfully:');
-        console.log('Order ID:', response.data.data?.id);
-        console.log('Order Number:', response.data.data?.orderNumber);
-        console.log('Total:', response.data.data?.total);
-        
-        toast.success('Order placed successfully! 🎉');
-      }
-
-      // Clear cart and refresh
-      setCart([]);
-      setShowCart(false);
-      localStorage.removeItem(`cart_table_${tableNumber}`);
-      await fetchExistingOrder();
-      
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.log('✅ ORDER PROCESS COMPLETED');
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-      
-    } catch (error) {
-      console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('❌ ORDER CREATION ERROR');
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('Error Object:', error);
-      console.error('Error Message:', error.message);
-      console.error('Response Status:', error.response?.status);
-      console.error('Response Data:', error.response?.data);
-      
-      if (error.response?.data) {
-        console.error('\n📋 ERROR DETAILS:');
-        console.error('Success:', error.response.data.success);
-        console.error('Message:', error.response.data.message);
-        console.error('Details:', error.response.data.details);
-        console.error('Error:', error.response.data.error);
-        console.error('Hint:', error.response.data.hint);
-        
-        if (error.response.data.missingIds) {
-          console.error('Missing IDs:', error.response.data.missingIds);
-        }
-        
-        if (error.response.data.availableIds) {
-          console.error('\n📦 Available Menu Items in Database:');
-          error.response.data.availableIds.forEach((item, index) => {
-            console.error(`  ${index + 1}. ${item.name}: ${item.id}`);
-          });
-        }
-      }
-      
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
-      
-      if (error.response?.data?.orderId) {
-        await fetchExistingOrder();
-      }
-      
-      const errorMessage = error.response?.data?.message || 
-                          error.response?.data?.error || 
-                          'Failed to place order';
-      
-      toast.error(errorMessage);
-      
-      // Show detailed error alert
-      if (error.response?.data?.hint) {
-        alert(`❌ ${errorMessage}\n\n💡 ${error.response.data.hint}\n\nCheck the browser console for full details.`);
-      }
-    } finally {
       setOrdering(false);
+      return;
     }
-  };
+    
+    if (validation.warnings?.length > 0) {
+      console.warn('⚠️  Warnings:', validation.warnings);
+    }
+    
+    console.log('\n✅ Validation passed! Creating order...');
+    
+    // Create order
+    if (existingOrder) {
+      console.log('Adding to existing order:', existingOrder.id);
+      await ordersAPI.addItems(existingOrder.id, cart.map(item => ({
+        menuItemId: item.id,
+        quantity: item.quantity,
+      })));
+      toast.success('Items added to your order! 🎉');
+    } else {
+      console.log('Creating new order...');
+      const response = await ordersAPI.create(orderData);
+      console.log('✅ Order created:', response.data);
+      toast.success('Order placed successfully! 🎉');
+    }
+
+    setCart([]);
+    setShowCart(false);
+    localStorage.removeItem(`cart_table_${tableNumber}`);
+    await fetchExistingOrder();
+    
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ ORDER COMPLETED');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    
+  } catch (error) {
+    console.error('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('❌ ORDER ERROR');
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.error('Error:', error);
+    console.error('Response:', error.response?.data);
+    
+    if (error.response?.data?.availableIds) {
+      console.error('\n📦 Available IDs from server:');
+      error.response.data.availableIds.forEach((item, i) => {
+        console.error(`  ${i + 1}. ${item.name}: ${item.id}`);
+      });
+    }
+    
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    
+    if (error.response?.data?.orderId) {
+      await fetchExistingOrder();
+    }
+    
+    const errorMessage = error.response?.data?.message || 'Failed to place order';
+    toast.error(errorMessage);
+    
+    if (error.response?.data?.hint) {
+      alert(`❌ ${errorMessage}\n\n💡 ${error.response.data.hint}\n\nCheck console for details`);
+    }
+  } finally {
+    setOrdering(false);
+  }
+};
 
   // Image URL helper
   const getItemImage = (item) => {
