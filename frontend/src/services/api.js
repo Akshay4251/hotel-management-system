@@ -47,22 +47,6 @@ api.interceptors.response.use(
   }
 );
 
-// ===== TABLES API =====
-export const tablesAPI = {
-  getAll: () => api.get('/tables'),
-  verify: (tableNumber) => api.post('/tables/verify', { tableNumber }),
-  updateStatus: (id, status) => api.put(`/tables/${id}/status`, { status }),
-};
-
-// ===== MENU API =====
-export const menuAPI = {
-  getAll: (params) => api.get('/menu', { params }),
-  getCategories: () => api.get('/menu/categories'),
-  getById: (id) => api.get(`/menu/${id}`),
-  updateAvailability: (id, isAvailable) => 
-    api.patch(`/menu/${id}/availability`, { isAvailable }),
-};
-
 // ===== ORDERS API =====
 export const ordersAPI = {
   getAll: (params) => api.get('/orders', { params }),
@@ -94,6 +78,32 @@ export const adminAPI = {
 export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
   register: (userData) => api.post('/auth/register', userData),
+};
+
+// Add these to your existing tablesAPI object
+export const tablesAPI = {
+  getAll: () => api.get('/tables'),
+  verify: (tableNumber) => api.post('/tables/verify', { tableNumber }),
+  updateStatus: (id, status) => api.put(`/tables/${id}/status`, { status }),
+  
+  // NEW: Add these CRUD methods
+  create: (data) => api.post('/tables', data),
+  update: (id, data) => api.put(`/tables/${id}`, data),
+  delete: (id) => api.delete(`/tables/${id}`),
+};
+
+// Add these to your existing menuAPI object
+export const menuAPI = {
+  getAll: (params) => api.get('/menu', { params }),
+  getCategories: () => api.get('/menu/categories'),
+  getById: (id) => api.get(`/menu/${id}`),
+  updateAvailability: (id, isAvailable) => 
+    api.patch(`/menu/${id}/availability`, { isAvailable }),
+  
+  // NEW: Add these CRUD methods
+  create: (data) => api.post('/menu', data),
+  update: (id, data) => api.put(`/menu/${id}`, data),
+  delete: (id) => api.delete(`/menu/${id}`),
 };
 
 export default api;
