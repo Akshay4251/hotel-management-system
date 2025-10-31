@@ -9,25 +9,36 @@ const Bill = sequelize.define('Bill', {
   },
   billNumber: {
     type: DataTypes.STRING,
-    unique: true
+    unique: true,
+    allowNull: false
   },
   orderId: {
     type: DataTypes.UUID,
-    allowNull: false
+    allowNull: false,
+    references: {
+      model: 'Orders',
+      key: 'id'
+    }
   },
-  customerId: {
+  tableId: {
     type: DataTypes.UUID,
-    allowNull: true
+    allowNull: false, // ✅ CRITICAL: Make this required
+    references: {
+      model: 'Tables',
+      key: 'id'
+    }
   },
   subtotal: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false
+    allowNull: false,
+    defaultValue: 0
   },
-  taxAmount: {
+  tax: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false
+    allowNull: false,
+    defaultValue: 0
   },
-  discountAmount: {
+  discount: {
     type: DataTypes.DECIMAL(10, 2),
     defaultValue: 0
   },
@@ -35,9 +46,9 @@ const Bill = sequelize.define('Bill', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false
   },
-  status: {
-    type: DataTypes.ENUM('pending', 'paid', 'cancelled'),
-    defaultValue: 'pending'
+  isPaid: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
   },
   paymentMethod: {
     type: DataTypes.ENUM('cash', 'card', 'upi', 'wallet'),
@@ -47,27 +58,13 @@ const Bill = sequelize.define('Bill', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: true
   },
-  changeAmount: {
-    type: DataTypes.DECIMAL(10, 2),
-    allowNull: true
-  },
-  cashierId: {
-    type: DataTypes.UUID,
+  paidAt: {
+    type: DataTypes.DATE,
     allowNull: true
   }
 }, {
-  timestamps: true,
-  hooks: {
-    beforeCreate: async (bill) => {
-      // Generate bill number
-      const date = new Date();
-      const year = date.getFullYear().toString().substr(-2);
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const day = date.getDate().toString().padStart(2, '0');
-      const random = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
-      bill.billNumber = `BILL${year}${month}${day}${random}`;
-    }
-  }
+  tableName: 'Bills',
+  timestamps: true
 });
 
 module.exports = Bill;
