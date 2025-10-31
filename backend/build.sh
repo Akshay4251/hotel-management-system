@@ -4,107 +4,87 @@ echo "╔═══════════════════════�
 echo "║  🔨 Starting Build Process            ║"
 echo "╚════════════════════════════════════════╝"
 
-# Exit on any error
 set -e
 
-# Print commands as they execute (for debugging)
-set -x
-
 echo ""
-echo "📋 Environment Info:"
+echo "📋 Environment:"
 echo "Node: $(node --version)"
 echo "NPM: $(npm --version)"
-echo "Current Dir: $(pwd)"
+echo "Current: $(pwd)"
 echo ""
 
-# Step 1: Install backend dependencies
+# Install backend dependencies
 echo "📦 Step 1: Installing backend dependencies..."
 npm install
 
-# Step 2: Navigate to frontend
+# Navigate to frontend
 echo ""
-echo "🎨 Step 2: Preparing frontend..."
+echo "🎨 Step 2: Building frontend..."
 
-# Get the absolute path of project root
 PROJECT_ROOT="$(cd .. && pwd)"
 FRONTEND_PATH="$PROJECT_ROOT/frontend"
 BACKEND_PATH="$PROJECT_ROOT/backend"
 
-echo "Project Root: $PROJECT_ROOT"
-echo "Frontend Path: $FRONTEND_PATH"
-echo "Backend Path: $BACKEND_PATH"
+echo "Frontend: $FRONTEND_PATH"
+echo "Backend: $BACKEND_PATH"
 
-# Check if frontend exists
-if [ ! -d "$FRONTEND_PATH" ]; then
-  echo "❌ ERROR: Frontend directory not found at $FRONTEND_PATH"
-  echo "Directory structure:"
-  ls -la "$PROJECT_ROOT"
-  exit 1
-fi
-
-# Go to frontend
 cd "$FRONTEND_PATH"
-echo "✅ Changed to: $(pwd)"
+echo "✅ In: $(pwd)"
 
-# Step 3: Install frontend dependencies
+# Clean install with all dependencies (including dev)
 echo ""
 echo "📦 Step 3: Installing frontend dependencies..."
-echo "Contents of frontend directory:"
-ls -la
+rm -rf node_modules package-lock.json .vite-temp
 
-# Remove node_modules and package-lock to ensure clean install
-rm -rf node_modules package-lock.json
+# Install ALL dependencies (not just production)
+npm install --include=dev
 
-# Install with verbose output
-npm install --verbose
-
-# Verify vite is installed
+# Verify critical packages
 echo ""
-echo "🔍 Verifying Vite installation..."
-if [ -f "node_modules/.bin/vite" ]; then
-  echo "✅ Vite found at: node_modules/.bin/vite"
-else
-  echo "❌ Vite not found! Installing explicitly..."
-  npm install vite --save-dev
+echo "🔍 Verifying installations..."
+if [ ! -d "node_modules/vite" ]; then
+  echo "❌ Vite not found! Installing..."
+  npm install vite@5.4.11 --save
 fi
 
-# Step 4: Build frontend
+if [ ! -d "node_modules/@vitejs/plugin-react" ]; then
+  echo "❌ @vitejs/plugin-react not found! Installing..."
+  npm install @vitejs/plugin-react@4.3.3 --save
+fi
+
+echo "✅ Vite: $(ls -d node_modules/vite 2>/dev/null || echo 'NOT FOUND')"
+echo "✅ Plugin: $(ls -d node_modules/@vitejs/plugin-react 2>/dev/null || echo 'NOT FOUND')"
+
+# Build frontend
 echo ""
 echo "🏗️  Step 4: Building frontend..."
-npx vite build
+npm run build
 
-# Verify build output
+# Verify build
 if [ ! -d "dist" ]; then
-  echo "❌ ERROR: Build failed - dist directory not created"
+  echo "❌ Build failed - no dist directory"
   exit 1
 fi
 
-echo "✅ Frontend build successful!"
-echo "📁 Build output (first 10 files):"
+echo "✅ Build successful!"
+echo "📁 Dist contents:"
 ls -la dist | head -10
 
-# Step 5: Copy to backend
+# Copy to backend
 echo ""
-echo "📋 Step 5: Copying frontend build to backend..."
+echo "📋 Step 5: Copying build to backend..."
 cd "$PROJECT_ROOT"
-
-# Remove old dist
 rm -rf "$BACKEND_PATH/dist"
-
-# Copy new dist
 cp -r "$FRONTEND_PATH/dist" "$BACKEND_PATH/dist"
 
-# Verify
 if [ -d "$BACKEND_PATH/dist" ]; then
-  echo "✅ Build copied to backend successfully"
-  echo "📁 Files in backend/dist:"
-  ls -la "$BACKEND_PATH/dist" | head -10
+  echo "✅ Build copied to backend"
+  ls -la "$BACKEND_PATH/dist" | head -5
 else
-  echo "❌ ERROR: Failed to copy dist to backend"
+  echo "❌ Failed to copy build"
   exit 1
 fi
 
-# Return to backend
 cd "$BACKEND_PATH"
 
 echo ""

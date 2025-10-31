@@ -1,5 +1,5 @@
 {
-  "name": "hotel-management-backend",
+  "name": "backend",
   "version": "1.0.0",
   "description": "Hotel Management System",
   "main": "server.js",
