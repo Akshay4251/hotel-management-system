@@ -249,10 +249,10 @@ const runMigrations = async () => {
       const columnNames = currentColumns.map(col => col.column_name);
       console.log('   Current columns:', columnNames.join(', '));
       
-      // Define required columns
+      // Define required columns (using actual DB column names)
       const requiredColumns = {
         tableId: { type: 'UUID', nullable: true },
-        tax: { type: 'DECIMAL(10,2)', nullable: false, default: 0 },
+        taxAmount: { type: 'DECIMAL(10,2)', nullable: false, default: 0 }, // ✅ Changed from 'tax'
         subtotal: { type: 'DECIMAL(10,2)', nullable: false, default: 0 },
         discount: { type: 'DECIMAL(10,2)', nullable: true, default: 0 },
         totalAmount: { type: 'DECIMAL(10,2)', nullable: false },
@@ -292,20 +292,20 @@ const runMigrations = async () => {
       }
       
       // Update existing bills with data from orders
-      if (migrationsRun > 0) {
+      if (migrationsRun > 0 || columnNames.includes('taxAmount')) {
         console.log('   📝 Updating existing bills from orders...');
         
         await sequelize.query(`
           UPDATE "Bills" b
           SET 
-            "tableId" = o."tableId",
+            "tableId" = COALESCE(b."tableId", o."tableId"),
             "subtotal" = COALESCE(b."subtotal", o."subtotal", 0),
-            "tax" = COALESCE(b."tax", o."tax", 0),
+            "taxAmount" = COALESCE(b."taxAmount", o."tax", 0),
             "discount" = COALESCE(b."discount", o."discount", 0),
             "totalAmount" = COALESCE(b."totalAmount", o."total", 0)
           FROM "Orders" o
           WHERE b."orderId" = o."id"
-            AND (b."tableId" IS NULL OR b."tax" IS NULL OR b."subtotal" IS NULL);
+            AND (b."tableId" IS NULL OR b."taxAmount" IS NULL OR b."subtotal" IS NULL OR b."totalAmount" = 0);
         `);
         
         console.log('   ✅ Existing bills updated');
@@ -323,17 +323,25 @@ const runMigrations = async () => {
       if (constraints.length === 0 && columnNames.includes('tableId')) {
         console.log('   📝 Adding foreign key constraint...');
         
-        await sequelize.query(`
-          ALTER TABLE "Bills"
-          ADD CONSTRAINT "Bills_tableId_fkey"
-          FOREIGN KEY ("tableId")
-          REFERENCES "Tables"("id")
-          ON DELETE RESTRICT
-          ON UPDATE CASCADE;
-        `);
-        
-        console.log('   ✅ Foreign key constraint added');
-        migrationsRun++;
+        try {
+          await sequelize.query(`
+            ALTER TABLE "Bills"
+            ADD CONSTRAINT "Bills_tableId_fkey"
+            FOREIGN KEY ("tableId")
+            REFERENCES "Tables"("id")
+            ON DELETE RESTRICT
+            ON UPDATE CASCADE;
+          `);
+          
+          console.log('   ✅ Foreign key constraint added');
+          migrationsRun++;
+        } catch (fkError) {
+          if (fkError.message.includes('already exists')) {
+            console.log('   ℹ️  Foreign key constraint already exists');
+          } else {
+            throw fkError;
+          }
+        }
       }
       
       if (migrationsRun > 0) {

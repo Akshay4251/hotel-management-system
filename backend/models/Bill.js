@@ -22,7 +22,7 @@ const Bill = sequelize.define('Bill', {
   },
   tableId: {
     type: DataTypes.UUID,
-    allowNull: false, // ✅ CRITICAL: Make this required
+    allowNull: true,
     references: {
       model: 'Tables',
       key: 'id'
@@ -31,36 +31,44 @@ const Bill = sequelize.define('Bill', {
   subtotal: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
-    defaultValue: 0
+    defaultValue: 0,
+    field: 'subtotal' // ✅ Explicitly map field name
   },
   tax: {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false,
-    defaultValue: 0
+    defaultValue: 0,
+    field: 'taxAmount' // ✅ CRITICAL: Map to actual DB column name
   },
   discount: {
     type: DataTypes.DECIMAL(10, 2),
-    defaultValue: 0
+    defaultValue: 0,
+    field: 'discount'
   },
   totalAmount: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false
+    allowNull: false,
+    field: 'totalAmount'
   },
   isPaid: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false
+    defaultValue: false,
+    field: 'isPaid'
   },
   paymentMethod: {
     type: DataTypes.ENUM('cash', 'card', 'upi', 'wallet'),
-    allowNull: true
+    allowNull: true,
+    field: 'paymentMethod'
   },
   paidAmount: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: true
+    allowNull: true,
+    field: 'paidAmount'
   },
   paidAt: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: true,
+    field: 'paidAt'
   }
 }, {
   tableName: 'Bills',
