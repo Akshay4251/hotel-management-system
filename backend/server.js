@@ -12,6 +12,7 @@ const fs = require('fs');
 const { connectDB } = require('./config/database');
 const socketHandler = require('./socket/socketHandler');
 
+
 // Import routes
 const authRoutes = require('./routes/authRoutes');
 const tableRoutes = require('./routes/tableRoutes');
@@ -210,7 +211,8 @@ app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/admin', adminRoutes);
-
+// Add this with other routes (BEFORE the SPA fallback)
+app.use('/api/debug', require('./routes/debugRoutes'));
 // ===== SPA FALLBACK (MUST BE LAST) =====
 if (isProduction) {
   app.get('*', (req, res) => {

@@ -7,6 +7,7 @@ const { Op } = require('sequelize');
 // ============================================
 // GET ALL ORDERS
 // ============================================
+
 router.get('/', async (req, res) => {
   try {
     const { status, tableId, type, startDate, endDate } = req.query;
@@ -15,7 +16,6 @@ router.get('/', async (req, res) => {
     if (status) where.status = status;
     if (tableId) where.tableId = tableId;
     if (type) where.type = type;
-    
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt[Op.gte] = new Date(startDate);
