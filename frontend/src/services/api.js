@@ -1,13 +1,25 @@
 import axios from 'axios';
 
-// API Configuration - Direct setup
-const API_BASE_URL = 'http://localhost:5000/api';
+// ===== API CONFIGURATION =====
+// In production (Render): Use same domain (empty string means relative URLs)
+// In development: Use localhost
+const isDevelopment = import.meta.env.DEV;
 
+const API_BASE_URL = isDevelopment 
+  ? 'http://localhost:5000/api'  // Development
+  : '/api';                       // Production (same domain)
+
+console.log('🔧 API Mode:', isDevelopment ? 'Development' : 'Production');
+console.log('🔗 API Base URL:', API_BASE_URL || 'Same domain (relative)');
+
+// Create axios instance
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
+  withCredentials: true,
+  timeout: 30000
 });
 
 // Request interceptor for adding token
@@ -20,14 +32,19 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
+    console.error('❌ Request Error:', error);
     return Promise.reject(error);
   }
 );
 
 // Response interceptor for handling errors
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    return response;
+  },
   (error) => {
+    console.error('❌ Response Error:', error.response?.status, error.message);
+    
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       window.location.href = '/';
@@ -36,14 +53,14 @@ api.interceptors.response.use(
   }
 );
 
-// Tables API
+// ===== TABLES API =====
 export const tablesAPI = {
   getAll: () => api.get('/tables'),
   verify: (tableNumber) => api.post('/tables/verify', { tableNumber }),
   updateStatus: (id, status) => api.put(`/tables/${id}/status`, { status }),
 };
 
-// Menu API
+// ===== MENU API =====
 export const menuAPI = {
   getAll: (params) => api.get('/menu', { params }),
   getCategories: () => api.get('/menu/categories'),
@@ -52,7 +69,7 @@ export const menuAPI = {
     api.patch(`/menu/${id}/availability`, { isAvailable }),
 };
 
-// Orders API
+// ===== ORDERS API =====
 export const ordersAPI = {
   getAll: (params) => api.get('/orders', { params }),
   getByTable: (tableNumber) => api.get(`/orders/table/${tableNumber}`),
@@ -65,21 +82,21 @@ export const ordersAPI = {
     api.delete(`/orders/${orderId}/items/${itemId}`),
 };
 
-// Bills API
+// ===== BILLS API =====
 export const billsAPI = {
   generate: (orderId) => api.post(`/bills/generate/${orderId}`),
   settle: (billId, paymentData) => api.post(`/bills/${billId}/settle`, paymentData),
   getById: (billId) => api.get(`/bills/${billId}`),
 };
 
-// Admin API
+// ===== ADMIN API =====
 export const adminAPI = {
   getDashboard: () => api.get('/admin/dashboard'),
   getRevenueReport: (startDate, endDate) => 
     api.get('/admin/reports/revenue', { params: { startDate, endDate } }),
 };
 
-// Auth API
+// ===== AUTH API =====
 export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
   register: (userData) => api.post('/auth/register', userData),

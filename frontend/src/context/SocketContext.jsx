@@ -36,27 +36,50 @@ export const SocketProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    const SOCKET_URL = 'http://localhost:5000';
+    // ===== SOCKET URL CONFIGURATION =====
+    // In production: Use same domain (window.location.origin)
+    // In development: Use localhost
+    const isDevelopment = import.meta.env.DEV;
+    const SOCKET_URL = isDevelopment 
+      ? 'http://localhost:5000' 
+      : window.location.origin; // Same domain in production
+
+    console.log('🔌 Socket Mode:', isDevelopment ? 'Development' : 'Production');
+    console.log('🔗 Socket URL:', SOCKET_URL);
     
     const newSocket = io(SOCKET_URL, {
-      transports: ['websocket'],
+      path: '/socket.io',
+      transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 20000,
+      autoConnect: true,
+      withCredentials: true
     });
 
     newSocket.on('connect', () => {
-      console.log('✅ Connected to server:', newSocket.id);
+      console.log('✅ Socket Connected:', newSocket.id);
       setConnected(true);
       fetchInitialData();
     });
 
-    newSocket.on('disconnect', () => {
-      console.log('❌ Disconnected from server');
+    newSocket.on('disconnect', (reason) => {
+      console.log('❌ Socket Disconnected:', reason);
       setConnected(false);
     });
 
-    // Global updates listeners
+    newSocket.on('connect_error', (error) => {
+      console.error('❌ Socket Connection Error:', error.message);
+    });
+
+    newSocket.on('reconnect', (attemptNumber) => {
+      console.log('🔄 Socket Reconnected after', attemptNumber, 'attempts');
+      fetchInitialData();
+    });
+
+    // ===== GLOBAL UPDATE LISTENERS =====
     newSocket.on('orders-update', (orders) => {
       console.log('📦 Orders updated:', orders?.length);
       setGlobalOrders(orders || []);
@@ -79,17 +102,22 @@ export const SocketProvider = ({ children }) => {
       fetchInitialData();
     });
 
-    // Notification events
+    // ===== NOTIFICATION EVENTS =====
     newSocket.on('notification', (notification) => {
-      setNotifications(prev => [...prev, { ...notification, id: Date.now() }]);
+      const notificationWithId = { ...notification, id: Date.now() };
+      setNotifications(prev => [...prev, notificationWithId]);
+      
+      // Auto-remove after 5 seconds
       setTimeout(() => {
-        setNotifications(prev => prev.filter(n => n.id !== notification.id));
+        setNotifications(prev => prev.filter(n => n.id !== notificationWithId.id));
       }, 5000);
     });
 
     setSocket(newSocket);
 
+    // Cleanup on unmount
     return () => {
+      console.log('🔌 Closing socket connection');
       newSocket.close();
     };
   }, [fetchInitialData]);
@@ -107,6 +135,8 @@ export const SocketProvider = ({ children }) => {
   return (
     <SocketContext.Provider value={value}>
       {children}
+      
+      {/* Live Connection Indicator */}
       {connected && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
           <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-2 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 animate-pulse-soft">

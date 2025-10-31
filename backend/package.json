@@ -1,15 +1,16 @@
 {
   "name": "hotel-management-backend",
   "version": "1.0.0",
-  "description": "Hotel Management System Backend",
+  "description": "Hotel Management System",
   "main": "server.js",
+  "engines": {
+    "node": "18.x",
+    "npm": ">=9.0.0"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "db:create": "sequelize db:create",
-    "db:migrate": "sequelize db:migrate",
-    "db:seed": "sequelize db:seed:all",
-    "db:reset": "sequelize db:drop && sequelize db:create && sequelize db:migrate && sequelize db:seed:all"
+    "build": "bash build.sh"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -27,7 +28,6 @@
     "socket.io": "^4.6.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1",
-    "sequelize-cli": "^6.6.1"
+    "nodemon": "^3.0.1"
   }
 }
