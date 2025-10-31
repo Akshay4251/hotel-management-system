@@ -5,27 +5,19 @@ import { menuAPI, ordersAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import { useSocket } from '../context/SocketContext.jsx';
 
+// Fallback images ONLY when no image is uploaded
 const defaultFoodImages = {
-  'Starters': 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=400&h=300&fit=crop',
+  'Starters & Salads': 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop',
+  'Pizzas': 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&h=300&fit=crop',
+  'Burgers & Sandwiches': 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&h=300&fit=crop',
+  'Pasta & Rice': 'https://images.unsplash.com/photo-1621996346565-e3dbc646d9a9?w=400&h=300&fit=crop',
   'Main Course': 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop',
-  'Breads': 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=400&h=300&fit=crop',
-  'Beverages': 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=300&fit=crop',
   'Desserts': 'https://images.unsplash.com/photo-1551024601-bec78aea704b?w=400&h=300&fit=crop',
+  'Beverages': 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=400&h=300&fit=crop',
   'default': 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=400&h=300&fit=crop'
 };
 
-const foodImages = {
-  'Paneer Tikka': 'https://images.unsplash.com/photo-1599487488170-d11ec9c172f0?w=400&h=300&fit=crop',
-  'Chicken Wings': 'https://images.unsplash.com/photo-1527477396000-e27163b481c2?w=400&h=300&fit=crop',
-  'Veg Biryani': 'https://images.unsplash.com/photo-1563379091339-03b21ab4a4f8?w=400&h=300&fit=crop',
-  'Chicken Biryani': 'https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=400&h=300&fit=crop',
-  'Dal Makhani': 'https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&h=300&fit=crop',
-  'Butter Chicken': 'https://images.unsplash.com/photo-1603894584373-5ac82b2ae398?w=400&h=300&fit=crop',
-  'Naan': 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=300&fit=crop',
-  'Garlic Naan': 'https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&h=300&fit=crop',
-  'Gulab Jamun': 'https://images.unsplash.com/photo-1571605800585-18ba15e7f3e5?w=400&h=300&fit=crop',
-  'Ice Cream': 'https://images.unsplash.com/photo-1488900128323-21503983a07e?w=400&h=300&fit=crop'
-};
+const API_BASE_URL = import.meta.env.DEV ? 'http://localhost:5000' : '';
 
 function Menu() {
   const { tableNumber } = useParams();
@@ -199,8 +191,16 @@ function Menu() {
     }
   };
 
+  // FIXED: Priority to uploaded images
   const getItemImage = (item) => {
-    return foodImages[item.name] || defaultFoodImages[item.category] || defaultFoodImages['default'];
+    // Priority 1: Use uploaded image if exists
+    if (item.image) {
+      // Check if it's a full URL or relative path
+      return item.image.startsWith('http') ? item.image : `${API_BASE_URL}${item.image}`;
+    }
+    
+    // Priority 2: Use category default
+    return defaultFoodImages[item.category] || defaultFoodImages['default'];
   };
 
   const cartTotal = cart.reduce((sum, item) => sum + (parseFloat(item.price) * item.quantity), 0);
@@ -240,7 +240,7 @@ function Menu() {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setVegOnly(!vegOnly)}
-                className={`p-2 rounded-lg ${
+                className={`p-2 rounded-lg transition-colors ${
                   vegOnly 
                     ? 'bg-green-500 text-white' 
                     : 'bg-gray-100 text-gray-600'
@@ -289,7 +289,7 @@ function Menu() {
       {/* Current Order Modal */}
       {showCurrentOrder && existingOrder && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setShowCurrentOrder(false)}
         >
           <div 
@@ -323,7 +323,7 @@ function Menu() {
                   </div>
                   <button
                     onClick={() => deleteFromExistingOrder(item.id)}
-                    className={`p-2 rounded-lg ml-2 ${
+                    className={`p-2 rounded-lg ml-2 transition-colors ${
                       item.status === 'served' 
                         ? 'text-gray-400 cursor-not-allowed' 
                         : 'text-red-600 hover:bg-red-50'
@@ -348,7 +348,7 @@ function Menu() {
       {/* Cart Sidebar */}
       {showCart && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm z-50 flex justify-end"
+          className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm z-50 flex justify-end"
           onClick={() => setShowCart(false)}
         >
           <div 
@@ -382,6 +382,10 @@ function Menu() {
                       src={getItemImage(item)} 
                       alt={item.name}
                       className="w-16 h-16 object-cover rounded-lg"
+                      onError={(e) => {
+                        e.target.onerror = null;
+                        e.target.src = defaultFoodImages['default'];
+                      }}
                     />
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-gray-900 truncate">{item.name}</p>
@@ -452,6 +456,7 @@ function Menu() {
                       alt={item.name}
                       className="w-full h-full object-cover"
                       onError={(e) => {
+                        e.target.onerror = null;
                         e.target.src = defaultFoodImages['default'];
                       }}
                     />
@@ -477,14 +482,14 @@ function Menu() {
                         <div className="flex items-center gap-2 bg-red-600 text-white rounded-lg">
                           <button 
                             onClick={() => removeFromCart(item.id)}
-                            className="p-2 hover:bg-red-700 rounded-lg"
+                            className="p-2 hover:bg-red-700 rounded-lg transition-colors"
                           >
                             <Minus className="w-4 h-4" />
                           </button>
                           <span className="w-8 text-center font-bold">{cartItem.quantity}</span>
                           <button 
                             onClick={() => addToCart(item)}
-                            className="p-2 hover:bg-red-700 rounded-lg"
+                            className="p-2 hover:bg-red-700 rounded-lg transition-colors"
                           >
                             <Plus className="w-4 h-4" />
                           </button>
@@ -492,7 +497,7 @@ function Menu() {
                       ) : (
                         <button 
                           onClick={() => addToCart(item)}
-                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium"
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors"
                         >
                           Add
                         </button>
@@ -551,14 +556,14 @@ function Menu() {
               <div className="flex gap-3">
                 <button
                   onClick={() => setShowCart(true)}
-                  className="px-6 py-3 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium"
+                  className="px-6 py-3 bg-gray-100 text-gray-900 rounded-lg hover:bg-gray-200 font-medium transition-colors"
                 >
                   View Cart
                 </button>
                 <button 
                   onClick={placeOrder}
                   disabled={ordering}
-                  className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium disabled:opacity-50 flex items-center gap-2"
+                  className="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium disabled:opacity-50 flex items-center gap-2 transition-colors"
                 >
                   {ordering ? 'Processing...' : existingOrder ? 'Add to Order' : 'Place Order'}
                   <ChevronRight className="w-5 h-5" />

@@ -819,14 +819,15 @@ function Admin() {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredMenuItems.map(item => (
                     <div key={item.id} className="border rounded-xl overflow-hidden hover:shadow-lg transition-all">
-                      {/* Image Section */}
+                      {/* Image Section - FIXED */}
                       {item.image ? (
                         <div className="h-48 bg-gray-100 overflow-hidden">
                           <img
-                            src={`${API_BASE_URL}${item.image}`}
+                            src={item.image.startsWith('http') ? item.image : `${API_BASE_URL}${item.image}`}
                             alt={item.name}
                             className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
                             onError={(e) => {
+                              e.target.onerror = null; // Prevent infinite loop
                               e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23f3f4f6" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="16"%3ENo Image%3C/text%3E%3C/svg%3E';
                             }}
                           />
