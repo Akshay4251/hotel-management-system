@@ -7,7 +7,6 @@ const { Op } = require('sequelize');
 // ============================================
 // GET ALL ORDERS
 // ============================================
-
 router.get('/', async (req, res) => {
   try {
     const { status, tableId, type, startDate, endDate } = req.query;
@@ -16,6 +15,7 @@ router.get('/', async (req, res) => {
     if (status) where.status = status;
     if (tableId) where.tableId = tableId;
     if (type) where.type = type;
+    
     if (startDate || endDate) {
       where.createdAt = {};
       if (startDate) where.createdAt[Op.gte] = new Date(startDate);
@@ -210,7 +210,7 @@ router.get('/:orderId/kot', async (req, res) => {
 });
 
 // ============================================
-// CREATE NEW ORDER (FIXED)
+// CREATE NEW ORDER (ENHANCED WITH DETAILED LOGGING)
 // ============================================
 router.post('/', async (req, res) => {
   const t = await sequelize.transaction();
@@ -224,7 +224,28 @@ router.post('/', async (req, res) => {
     console.log('Table Number:', tableNumber);
     console.log('Items Count:', items?.length);
     console.log('Type:', type);
-    console.log('Items:', JSON.stringify(items, null, 2));
+    console.log('Waiter ID:', waiterId);
+    console.log('Notes:', notes);
+    console.log('\n📦 RAW ITEMS RECEIVED:');
+    console.log(JSON.stringify(items, null, 2));
+    
+    // ============================================
+    // DETAILED ITEM INSPECTION
+    // ============================================
+    console.log('\n🔍 DETAILED ITEM INSPECTION:');
+    items?.forEach((item, index) => {
+      const menuItemId = item.menuItemId || item.id;
+      console.log(`\n📦 Item ${index + 1}:`);
+      console.log('  Raw Object:', JSON.stringify(item));
+      console.log('  item.menuItemId:', item.menuItemId);
+      console.log('  item.id:', item.id);
+      console.log('  Extracted ID:', menuItemId);
+      console.log('  Type:', typeof menuItemId);
+      console.log('  Length:', menuItemId?.length);
+      console.log('  Is String:', typeof menuItemId === 'string');
+      console.log('  Is Valid UUID:', /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(menuItemId));
+      console.log('  Quantity:', item.quantity, '(type:', typeof item.quantity, ')');
+    });
     
     // ============================================
     // VALIDATION
@@ -261,7 +282,7 @@ router.post('/', async (req, res) => {
       });
     }
     
-    console.log('✅ Table found:', {
+    console.log('\n✅ Table found:', {
       id: table.id,
       number: table.number,
       status: table.status
@@ -290,14 +311,49 @@ router.post('/', async (req, res) => {
     }
     
     // ============================================
-    // VALIDATE ALL MENU ITEMS EXIST
+    // EXTRACT AND VALIDATE MENU ITEM IDS
     // ============================================
-    const menuItemIds = items.map(item => item.menuItemId || item.id);
+    const menuItemIds = items.map(item => {
+      const id = item.menuItemId || item.id;
+      console.log(`  Extracting ID from item:`, id);
+      return id;
+    });
     
-    console.log('🔍 Validating menu items:', menuItemIds);
-    
-    // Remove duplicates
     const uniqueMenuItemIds = [...new Set(menuItemIds)];
+    
+    console.log('\n🔍 MENU ITEM IDS TO VALIDATE:');
+    console.log('All IDs:', menuItemIds);
+    console.log('Unique IDs:', uniqueMenuItemIds);
+    console.log('Count:', uniqueMenuItemIds.length);
+    
+    // ============================================
+    // CHECK EACH ID INDIVIDUALLY IN DATABASE
+    // ============================================
+    console.log('\n🔍 CHECKING EACH ID IN DATABASE:');
+    for (const id of uniqueMenuItemIds) {
+      console.log(`\nChecking ID: ${id}`);
+      console.log(`  Type: ${typeof id}`);
+      console.log(`  Length: ${id?.length}`);
+      
+      try {
+        const menuItem = await MenuItem.findByPk(id);
+        if (menuItem) {
+          console.log(`  ✅ FOUND: ${menuItem.name}`);
+          console.log(`     - ID in DB: ${menuItem.id}`);
+          console.log(`     - Price: ₹${menuItem.price}`);
+          console.log(`     - Available: ${menuItem.isAvailable}`);
+        } else {
+          console.log(`  ❌ NOT FOUND`);
+        }
+      } catch (error) {
+        console.log(`  ❌ ERROR checking ID: ${error.message}`);
+      }
+    }
+    
+    // ============================================
+    // FETCH ALL MATCHING MENU ITEMS
+    // ============================================
+    console.log('\n📋 FETCHING MENU ITEMS FROM DATABASE...');
     
     const foundMenuItems = await MenuItem.findAll({
       where: {
@@ -306,26 +362,78 @@ router.post('/', async (req, res) => {
       attributes: ['id', 'name', 'price', 'isAvailable', 'category', 'isVeg']
     });
     
-    console.log(`✅ Found ${foundMenuItems.length} of ${uniqueMenuItemIds.length} menu items`);
+    console.log(`\n📊 QUERY RESULT: Found ${foundMenuItems.length} of ${uniqueMenuItemIds.length} items`);
     
-    // Check if all items were found
+    foundMenuItems.forEach(item => {
+      console.log(`  ✅ ${item.name}:`);
+      console.log(`     ID: ${item.id}`);
+      console.log(`     Price: ₹${item.price}`);
+      console.log(`     Available: ${item.isAvailable}`);
+    });
+    
+    // ============================================
+    // CHECK IF ALL ITEMS WERE FOUND
+    // ============================================
     if (foundMenuItems.length !== uniqueMenuItemIds.length) {
       const foundIds = foundMenuItems.map(item => item.id);
       const missingIds = uniqueMenuItemIds.filter(id => !foundIds.includes(id));
       
       await t.rollback();
-      console.error('❌ Missing menu items:', missingIds);
+      
+      console.error('\n❌ MENU ITEMS NOT FOUND!');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('Sent IDs:', uniqueMenuItemIds);
+      console.error('Found IDs:', foundIds);
+      console.error('Missing IDs:', missingIds);
+      
+      // Get all available menu items for comparison
+      const allMenuItems = await MenuItem.findAll({
+        attributes: ['id', 'name', 'category']
+      });
+      
+      console.error('\n📋 ALL AVAILABLE MENU ITEMS IN DATABASE:');
+      allMenuItems.forEach((item, index) => {
+        console.error(`  ${index + 1}. ${item.name} (${item.category})`);
+        console.error(`     ID: ${item.id}`);
+      });
+      
+      console.error('\n🔍 ID COMPARISON:');
+      missingIds.forEach(missingId => {
+        console.error(`\nMissing ID: ${missingId}`);
+        console.error(`  Type: ${typeof missingId}`);
+        console.error(`  Length: ${missingId?.length}`);
+        
+        // Check for similar IDs
+        allMenuItems.forEach(dbItem => {
+          if (dbItem.id.toLowerCase() === missingId.toLowerCase()) {
+            console.error(`  ⚠️  Case mismatch with: ${dbItem.id}`);
+          }
+          if (dbItem.id.includes(missingId) || missingId.includes(dbItem.id)) {
+            console.error(`  ⚠️  Partial match with: ${dbItem.id}`);
+          }
+        });
+      });
+      
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
       
       return res.status(400).json({ 
         success: false, 
         message: 'Some menu items do not exist in database',
         missingIds,
         foundIds,
-        hint: 'These menu item IDs were not found. Please check the menu.'
+        sentIds: uniqueMenuItemIds,
+        availableIds: allMenuItems.map(i => ({ 
+          id: i.id, 
+          name: i.name,
+          category: i.category
+        })),
+        hint: 'Check backend console logs for detailed ID comparison'
       });
     }
     
-    // Check if all items are available
+    // ============================================
+    // CHECK AVAILABILITY
+    // ============================================
     const unavailableItems = foundMenuItems.filter(item => !item.isAvailable);
     if (unavailableItems.length > 0) {
       await t.rollback();
@@ -340,9 +448,13 @@ router.post('/', async (req, res) => {
       });
     }
     
+    console.log('\n✅ ALL VALIDATIONS PASSED!');
+    
     // ============================================
     // CALCULATE TOTALS & PREPARE ORDER ITEMS
     // ============================================
+    console.log('\n💰 CALCULATING TOTALS...');
+    
     let subtotal = 0;
     const orderItemsData = [];
     
@@ -377,10 +489,10 @@ router.post('/', async (req, res) => {
     }
     
     const tax = subtotal * 0.18; // 18% GST
-    const discount = 0; // Can be added later
+    const discount = 0;
     const total = subtotal + tax - discount;
     
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('💰 ORDER TOTALS');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('Subtotal:', `₹${subtotal.toFixed(2)}`);
@@ -391,6 +503,8 @@ router.post('/', async (req, res) => {
     // ============================================
     // CREATE ORDER
     // ============================================
+    console.log('\n📝 CREATING ORDER...');
+    
     const order = await Order.create({
       tableId: table.id,
       waiterId: waiterId || null,
@@ -407,23 +521,29 @@ router.post('/', async (req, res) => {
     console.log('✅ Order created:', {
       id: order.id,
       orderNumber: order.orderNumber,
-      tableId: order.tableId
+      tableId: order.tableId,
+      status: order.status
     });
     
     // ============================================
     // CREATE ORDER ITEMS
     // ============================================
+    console.log('\n📦 CREATING ORDER ITEMS...');
+    
     const createdItems = [];
     for (const itemData of orderItemsData) {
+      console.log(`  Creating: ${itemData.menuItemId} x${itemData.quantity}`);
+      
       const orderItem = await OrderItem.create({
         orderId: order.id,
         ...itemData
       }, { transaction: t });
       
       createdItems.push(orderItem);
+      console.log(`  ✅ Created order item: ${orderItem.id}`);
     }
     
-    console.log(`✅ Created ${createdItems.length} order items`);
+    console.log(`\n✅ Created ${createdItems.length} order items`);
     
     // ============================================
     // UPDATE TABLE STATUS
@@ -439,7 +559,6 @@ router.post('/', async (req, res) => {
     // ============================================
     await t.commit();
     console.log('✅ Transaction committed successfully');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     
     // ============================================
     // FETCH COMPLETE ORDER WITH ASSOCIATIONS
@@ -456,6 +575,8 @@ router.post('/', async (req, res) => {
       ]
     });
     
+    console.log('\n✅ Complete order fetched');
+    
     // ============================================
     // EMIT SOCKET EVENTS
     // ============================================
@@ -463,11 +584,9 @@ router.post('/', async (req, res) => {
     if (io) {
       console.log('📡 Emitting socket events...');
       
-      // Emit to all clients
       io.emit('new-order', completeOrder);
       io.emit('table-updated', table);
       
-      // Emit to kitchen for KOT printing
       io.to('kitchen').emit('print-kot', {
         id: completeOrder.id,
         orderNumber: completeOrder.orderNumber,
@@ -487,6 +606,10 @@ router.post('/', async (req, res) => {
       console.log('✅ Socket events emitted');
     }
     
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('✅ ORDER CREATION COMPLETED');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+    
     // ============================================
     // RETURN SUCCESS RESPONSE
     // ============================================
@@ -503,16 +626,28 @@ router.post('/', async (req, res) => {
     console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.error('Error Name:', error.name);
     console.error('Error Message:', error.message);
-    console.error('Stack:', error.stack);
+    console.error('Stack Trace:');
+    console.error(error.stack);
     
     // Handle specific Sequelize errors
     if (error.name === 'SequelizeForeignKeyConstraintError') {
+      console.error('\n🔴 FOREIGN KEY CONSTRAINT VIOLATION');
+      console.error('Table:', error.table);
+      console.error('Fields:', error.fields);
+      console.error('Value:', error.value);
+      console.error('Index:', error.index);
+      
       return res.status(400).json({
         success: false,
         message: 'Foreign key constraint violation',
         details: 'One or more referenced items do not exist in database',
         error: error.message,
-        hint: 'Check that all menu items and table exist'
+        hint: 'Check that all menu items and table exist',
+        technicalDetails: {
+          table: error.table,
+          fields: error.fields,
+          constraint: error.index
+        }
       });
     }
     
@@ -535,6 +670,8 @@ router.post('/', async (req, res) => {
         error: error.message
       });
     }
+    
+    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
     
     res.status(500).json({ 
       success: false, 
