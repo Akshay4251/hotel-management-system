@@ -4,77 +4,108 @@ echo "╔═══════════════════════�
 echo "║  🔨 Starting Build Process            ║"
 echo "╚════════════════════════════════════════╝"
 
-# Exit on error
+# Exit on any error
 set -e
 
-# Show Node version
+# Print commands as they execute (for debugging)
+set -x
+
 echo ""
 echo "📋 Environment Info:"
-echo "Node version: $(node --version)"
-echo "NPM version: $(npm --version)"
-echo "Working directory: $(pwd)"
-
-# Install backend dependencies
+echo "Node: $(node --version)"
+echo "NPM: $(npm --version)"
+echo "Current Dir: $(pwd)"
 echo ""
+
+# Step 1: Install backend dependencies
 echo "📦 Step 1: Installing backend dependencies..."
-npm install --legacy-peer-deps
+npm install
 
-# Navigate to frontend
+# Step 2: Navigate to frontend
 echo ""
-echo "🎨 Step 2: Building frontend..."
+echo "🎨 Step 2: Preparing frontend..."
 
-# Check if frontend directory exists
-if [ ! -d "../frontend" ]; then
-  echo "❌ Error: frontend directory not found!"
-  echo "Current location: $(pwd)"
-  echo "Contents: $(ls -la ..)"
+# Get the absolute path of project root
+PROJECT_ROOT="$(cd .. && pwd)"
+FRONTEND_PATH="$PROJECT_ROOT/frontend"
+BACKEND_PATH="$PROJECT_ROOT/backend"
+
+echo "Project Root: $PROJECT_ROOT"
+echo "Frontend Path: $FRONTEND_PATH"
+echo "Backend Path: $BACKEND_PATH"
+
+# Check if frontend exists
+if [ ! -d "$FRONTEND_PATH" ]; then
+  echo "❌ ERROR: Frontend directory not found at $FRONTEND_PATH"
+  echo "Directory structure:"
+  ls -la "$PROJECT_ROOT"
   exit 1
 fi
 
-cd ../frontend
+# Go to frontend
+cd "$FRONTEND_PATH"
+echo "✅ Changed to: $(pwd)"
 
-# Clean install frontend dependencies
-echo "📦 Installing frontend dependencies..."
+# Step 3: Install frontend dependencies
+echo ""
+echo "📦 Step 3: Installing frontend dependencies..."
+echo "Contents of frontend directory:"
+ls -la
+
+# Remove node_modules and package-lock to ensure clean install
 rm -rf node_modules package-lock.json
-npm install --legacy-peer-deps
 
-# Build frontend
-echo "🏗️  Running frontend build..."
-npm run build
+# Install with verbose output
+npm install --verbose
+
+# Verify vite is installed
+echo ""
+echo "🔍 Verifying Vite installation..."
+if [ -f "node_modules/.bin/vite" ]; then
+  echo "✅ Vite found at: node_modules/.bin/vite"
+else
+  echo "❌ Vite not found! Installing explicitly..."
+  npm install vite --save-dev
+fi
+
+# Step 4: Build frontend
+echo ""
+echo "🏗️  Step 4: Building frontend..."
+npx vite build
 
 # Verify build output
 if [ ! -d "dist" ]; then
-  echo "❌ Error: Frontend build failed - dist folder not created"
+  echo "❌ ERROR: Build failed - dist directory not created"
   exit 1
 fi
 
-echo "✅ Frontend build successful"
-echo "📁 Build output:"
-ls -la dist
+echo "✅ Frontend build successful!"
+echo "📁 Build output (first 10 files):"
+ls -la dist | head -10
 
-# Copy frontend build to backend
+# Step 5: Copy to backend
 echo ""
-echo "📋 Step 3: Copying frontend build to backend..."
-cd ..
+echo "📋 Step 5: Copying frontend build to backend..."
+cd "$PROJECT_ROOT"
 
-# Remove old dist if exists
-rm -rf backend/dist
+# Remove old dist
+rm -rf "$BACKEND_PATH/dist"
 
-# Copy new build
-cp -r frontend/dist backend/dist
+# Copy new dist
+cp -r "$FRONTEND_PATH/dist" "$BACKEND_PATH/dist"
 
-# Verify copy
-if [ -d "backend/dist" ]; then
-  echo "✅ Frontend build copied successfully"
+# Verify
+if [ -d "$BACKEND_PATH/dist" ]; then
+  echo "✅ Build copied to backend successfully"
   echo "📁 Files in backend/dist:"
-  ls -la backend/dist | head -10
+  ls -la "$BACKEND_PATH/dist" | head -10
 else
-  echo "❌ Error: Failed to copy dist folder"
+  echo "❌ ERROR: Failed to copy dist to backend"
   exit 1
 fi
 
-# Go back to backend
-cd backend
+# Return to backend
+cd "$BACKEND_PATH"
 
 echo ""
 echo "╔════════════════════════════════════════╗"
