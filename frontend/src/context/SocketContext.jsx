@@ -36,15 +36,16 @@ export const SocketProvider = ({ children }) => {
   }, []);
 
   useEffect(() => {
-    // ===== SOCKET URL CONFIGURATION =====
-    // In production: Use same domain (window.location.origin)
-    // In development: Use localhost
+    // ===== DYNAMIC SOCKET CONFIGURATION =====
     const isDevelopment = import.meta.env.DEV;
+    
+    // In production: Use same domain
+    // In development: Use localhost
     const SOCKET_URL = isDevelopment 
       ? 'http://localhost:5000' 
-      : window.location.origin; // Same domain in production
+      : window.location.origin;
 
-    console.log('🔌 Socket Mode:', isDevelopment ? 'Development' : 'Production');
+    console.log('🔌 Socket Environment:', isDevelopment ? 'Development' : 'Production');
     console.log('🔗 Socket URL:', SOCKET_URL);
     
     const newSocket = io(SOCKET_URL, {
@@ -55,8 +56,7 @@ export const SocketProvider = ({ children }) => {
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
-      autoConnect: true,
-      withCredentials: true
+      autoConnect: true
     });
 
     newSocket.on('connect', () => {
@@ -107,7 +107,6 @@ export const SocketProvider = ({ children }) => {
       const notificationWithId = { ...notification, id: Date.now() };
       setNotifications(prev => [...prev, notificationWithId]);
       
-      // Auto-remove after 5 seconds
       setTimeout(() => {
         setNotifications(prev => prev.filter(n => n.id !== notificationWithId.id));
       }, 5000);
@@ -115,7 +114,6 @@ export const SocketProvider = ({ children }) => {
 
     setSocket(newSocket);
 
-    // Cleanup on unmount
     return () => {
       console.log('🔌 Closing socket connection');
       newSocket.close();
@@ -139,12 +137,12 @@ export const SocketProvider = ({ children }) => {
       {/* Live Connection Indicator */}
       {connected && (
         <div className="fixed top-4 right-4 z-50 flex items-center gap-2">
-          <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-2 rounded-full text-xs font-medium shadow-lg flex items-center gap-2 animate-pulse-soft">
+          <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-2 rounded-full text-xs font-medium shadow-lg flex items-center gap-2">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
             </span>
-            Live 
+            Live
           </div>
         </div>
       )}

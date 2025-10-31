@@ -1,16 +1,16 @@
 import axios from 'axios';
 
-// ===== API CONFIGURATION =====
-// In production (Render): Use same domain (empty string means relative URLs)
-// In development: Use localhost
+// ===== DYNAMIC API CONFIGURATION =====
 const isDevelopment = import.meta.env.DEV;
 
+// In production: Use relative URLs (same domain)
+// In development: Use localhost
 const API_BASE_URL = isDevelopment 
-  ? 'http://localhost:5000/api'  // Development
-  : '/api';                       // Production (same domain)
+  ? 'http://localhost:5000/api' 
+  : '/api';
 
-console.log('🔧 API Mode:', isDevelopment ? 'Development' : 'Production');
-console.log('🔗 API Base URL:', API_BASE_URL || 'Same domain (relative)');
+console.log('🔧 API Environment:', isDevelopment ? 'Development' : 'Production');
+console.log('🔗 API Base URL:', API_BASE_URL);
 
 // Create axios instance
 const api = axios.create({
@@ -18,7 +18,6 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true,
   timeout: 30000
 });
 
@@ -32,19 +31,14 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('❌ Request Error:', error);
     return Promise.reject(error);
   }
 );
 
 // Response interceptor for handling errors
 api.interceptors.response.use(
-  (response) => {
-    return response;
-  },
+  (response) => response,
   (error) => {
-    console.error('❌ Response Error:', error.response?.status, error.message);
-    
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       window.location.href = '/';
