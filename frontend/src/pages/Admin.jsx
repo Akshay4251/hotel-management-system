@@ -4,7 +4,8 @@ import {
   RefreshCw, Printer, CreditCard, Clock, 
   Package, Calendar, Smartphone, Wallet, X,
   Plus, Edit, Trash2, Save, Search, Filter,
-  ChevronDown, QrCode, UtensilsCrossed, TableProperties
+  ChevronDown, QrCode, UtensilsCrossed, TableProperties,
+  Upload, Image as ImageIcon
 } from 'lucide-react';
 import { adminAPI, billsAPI, tablesAPI, menuAPI } from '../services/api';
 import toast from 'react-hot-toast';
@@ -13,8 +14,8 @@ import { useRealTimeUpdates } from '../hooks/useRealTimeUpdates';
 import BillPrint from '../components/BillPrint';
 
 const API_BASE_URL = import.meta.env.DEV 
-  ? 'http://localhost:5000/api' 
-  : '/api';
+  ? 'http://localhost:5000' 
+  : '';
 const PUBLIC_URL = window.location.origin;
 
 function Admin() {
@@ -51,11 +52,18 @@ function Admin() {
     category: '',
     price: '',
     description: '',
-    isAvailable: true
+    isAvailable: true,
+    image: ''
   });
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [categories, setCategories] = useState([]);
+  
+  // Image Upload States
+  const [selectedImage, setSelectedImage] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Real-time Updates
   useRealTimeUpdates({
@@ -176,11 +184,9 @@ function Admin() {
 
     try {
       if (editingTable) {
-        // Update existing table
         await tablesAPI.update(editingTable.id, tableForm);
         toast.success('Table updated successfully');
       } else {
-        // Create new table
         await tablesAPI.create(tableForm);
         toast.success('Table created successfully');
       }
@@ -207,6 +213,63 @@ function Admin() {
   };
 
   // ===================
+  // Image Upload Functions
+  // ===================
+
+  const handleImageSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size should be less than 5MB');
+      return;
+    }
+
+    setSelectedImage(file);
+
+    // Create preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setImagePreview(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const uploadImage = async () => {
+    if (!selectedImage) return null;
+
+    setUploadingImage(true);
+    const formData = new FormData();
+    formData.append('image', selectedImage);
+
+    try {
+      const response = await menuAPI.uploadImage(formData);
+      return response.data.imageUrl;
+    } catch (error) {
+      console.error('Image upload failed:', error);
+      toast.error('Failed to upload image');
+      return null;
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const removeImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // ===================
   // Menu CRUD
   // ===================
 
@@ -217,8 +280,11 @@ function Admin() {
       category: '',
       price: '',
       description: '',
-      isAvailable: true
+      isAvailable: true,
+      image: ''
     });
+    setSelectedImage(null);
+    setImagePreview(null);
     setShowMenuModal(true);
   };
 
@@ -229,8 +295,11 @@ function Admin() {
       category: item.category,
       price: item.price,
       description: item.description || '',
-      isAvailable: item.isAvailable
+      isAvailable: item.isAvailable,
+      image: item.image || ''
     });
+    setSelectedImage(null);
+    setImagePreview(item.image ? `${API_BASE_URL}${item.image}` : null);
     setShowMenuModal(true);
   };
 
@@ -241,17 +310,32 @@ function Admin() {
     }
 
     try {
+      let imageUrl = menuForm.image;
+
+      // Upload new image if selected
+      if (selectedImage) {
+        const uploadedUrl = await uploadImage();
+        if (uploadedUrl) {
+          imageUrl = uploadedUrl;
+        }
+      }
+
+      const menuData = {
+        ...menuForm,
+        image: imageUrl || null
+      };
+
       if (editingMenuItem) {
-        // Update
-        await menuAPI.update(editingMenuItem.id, menuForm);
+        await menuAPI.update(editingMenuItem.id, menuData);
         toast.success('Menu item updated');
       } else {
-        // Create
-        await menuAPI.create(menuForm);
+        await menuAPI.create(menuData);
         toast.success('Menu item created');
       }
       
       setShowMenuModal(false);
+      setSelectedImage(null);
+      setImagePreview(null);
       loadMenu();
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to save menu item');
@@ -358,7 +442,7 @@ function Admin() {
   });
 
   const qrImgUrl = (tableNumber, size = 220) =>
-    `${API_BASE_URL}/tables/${encodeURIComponent(tableNumber)}/qr?size=${size}`;
+    `${API_BASE_URL}/api/tables/${encodeURIComponent(tableNumber)}/qr?size=${size}`;
   const tableCustomerLink = (tableNumber) =>
     `${PUBLIC_URL}/menu/${encodeURIComponent(tableNumber)}?src=qr`;
 
@@ -734,14 +818,33 @@ function Admin() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {filteredMenuItems.map(item => (
-                    <div key={item.id} className="border rounded-xl p-4 hover:shadow-lg transition-all">
-                      <div className="flex items-start justify-between mb-3">
-                        <div className="flex-1">
-                          <h3 className="font-bold text-gray-900 mb-1">{item.name}</h3>
-                          <p className="text-sm text-gray-600 mb-2">{item.category}</p>
-                          <p className="text-lg font-bold text-red-600">₹{parseFloat(item.price).toFixed(2)}</p>
+                    <div key={item.id} className="border rounded-xl overflow-hidden hover:shadow-lg transition-all">
+                      {/* Image Section */}
+                      {item.image ? (
+                        <div className="h-48 bg-gray-100 overflow-hidden">
+                          <img
+                            src={`${API_BASE_URL}${item.image}`}
+                            alt={item.name}
+                            className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                            onError={(e) => {
+                              e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23f3f4f6" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="16"%3ENo Image%3C/text%3E%3C/svg%3E';
+                            }}
+                          />
                         </div>
-                        <div className="flex flex-col gap-2">
+                      ) : (
+                        <div className="h-48 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                          <ImageIcon className="w-16 h-16 text-gray-400" />
+                        </div>
+                      )}
+                      
+                      {/* Content Section */}
+                      <div className="p-4">
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <h3 className="font-bold text-gray-900 mb-1">{item.name}</h3>
+                            <p className="text-sm text-gray-600 mb-2">{item.category}</p>
+                            <p className="text-lg font-bold text-red-600">₹{parseFloat(item.price).toFixed(2)}</p>
+                          </div>
                           <button
                             onClick={() => toggleMenuAvailability(item)}
                             className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
@@ -753,27 +856,27 @@ function Admin() {
                             {item.isAvailable ? 'Available' : 'Unavailable'}
                           </button>
                         </div>
-                      </div>
-                      
-                      {item.description && (
-                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">{item.description}</p>
-                      )}
-                      
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEditMenuItem(item)}
-                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <Edit className="w-4 h-4" />
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => handleDeleteMenuItem(item)}
-                          className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                          Delete
-                        </button>
+                        
+                        {item.description && (
+                          <p className="text-sm text-gray-600 mb-3 line-clamp-2">{item.description}</p>
+                        )}
+                        
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleEditMenuItem(item)}
+                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            <Edit className="w-4 h-4" />
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => handleDeleteMenuItem(item)}
+                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -789,7 +892,7 @@ function Admin() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold text-gray-900">QR Codes by Table</h3>
               <a
-                href={`${API_BASE_URL}/tables/qr/print?size=260`}
+                href={`${API_BASE_URL}/api/tables/qr/print?size=260`}
                 target="_blank"
                 rel="noreferrer"
                 className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
@@ -823,7 +926,7 @@ function Admin() {
                       </p>
                       <div className="flex flex-col gap-2 mt-4">
                         <a
-                          href={`${API_BASE_URL}/tables/${t.number}/qr?size=600&download=1`}
+                          href={`${API_BASE_URL}/api/tables/${t.number}/qr?size=600&download=1`}
                           download
                           className="w-full px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 text-sm font-medium text-center transition-colors"
                         >
@@ -917,8 +1020,8 @@ function Admin() {
       {/* Menu Item Modal */}
       {showMenuModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white z-10">
               <h2 className="text-xl font-bold">
                 {editingMenuItem ? 'Edit Menu Item' : 'Add New Menu Item'}
               </h2>
@@ -931,77 +1034,132 @@ function Admin() {
             </div>
 
             <div className="p-6 space-y-4">
+              {/* Image Upload Section */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Item Name *
+                  Item Image
                 </label>
-                <input
-                  type="text"
-                  value={menuForm.name}
-                  onChange={(e) => setMenuForm({ ...menuForm, name: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
-                  placeholder="e.g., Chicken Burger"
-                />
+                <div className="space-y-3">
+                  {/* Preview */}
+                  {imagePreview ? (
+                    <div className="relative w-full h-64 bg-gray-100 rounded-lg overflow-hidden">
+                      <img
+                        src={imagePreview}
+                        alt="Preview"
+                        className="w-full h-full object-cover"
+                      />
+                      <button
+                        onClick={removeImage}
+                        className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-red-600 transition-colors"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="w-12 h-12 text-gray-400 mb-3" />
+                      <p className="text-sm text-gray-600 mb-1">Click to upload image</p>
+                      <p className="text-xs text-gray-500">PNG, JPG, WEBP up to 5MB</p>
+                    </div>
+                  )}
+                  
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                  />
+                  
+                  {!imagePreview && (
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 border-2 border-gray-300 rounded-lg hover:border-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <ImageIcon className="w-5 h-5" />
+                      <span>Choose Image</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Category *
-                </label>
-                <input
-                  type="text"
-                  value={menuForm.category}
-                  onChange={(e) => setMenuForm({ ...menuForm, category: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
-                  placeholder="e.g., Main Course, Beverages, Desserts"
-                  list="categories"
-                />
-                <datalist id="categories">
-                  {categories.map(cat => (
-                    <option key={cat} value={cat} />
-                  ))}
-                </datalist>
-              </div>
+              {/* Form Fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Item Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={menuForm.name}
+                    onChange={(e) => setMenuForm({ ...menuForm, name: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
+                    placeholder="e.g., Chicken Burger"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Price (₹) *
-                </label>
-                <input
-                  type="number"
-                  value={menuForm.price}
-                  onChange={(e) => setMenuForm({ ...menuForm, price: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
-                  placeholder="0.00"
-                  step="0.01"
-                  min="0"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Category *
+                  </label>
+                  <input
+                    type="text"
+                    value={menuForm.category}
+                    onChange={(e) => setMenuForm({ ...menuForm, category: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
+                    placeholder="e.g., Main Course"
+                    list="categories"
+                  />
+                  <datalist id="categories">
+                    {categories.map(cat => (
+                      <option key={cat} value={cat} />
+                    ))}
+                  </datalist>
+                </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
-                <textarea
-                  value={menuForm.description}
-                  onChange={(e) => setMenuForm({ ...menuForm, description: e.target.value })}
-                  className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600 resize-none"
-                  rows="3"
-                  placeholder="Brief description of the item"
-                />
-              </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Price (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    value={menuForm.price}
+                    onChange={(e) => setMenuForm({ ...menuForm, price: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600"
+                    placeholder="0.00"
+                    step="0.01"
+                    min="0"
+                  />
+                </div>
 
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  id="isAvailable"
-                  checked={menuForm.isAvailable}
-                  onChange={(e) => setMenuForm({ ...menuForm, isAvailable: e.target.checked })}
-                  className="w-5 h-5 text-red-600 rounded focus:ring-2 focus:ring-red-600"
-                />
-                <label htmlFor="isAvailable" className="text-sm font-medium text-gray-700">
-                  Available for ordering
-                </label>
+                <div className="sm:col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    value={menuForm.description}
+                    onChange={(e) => setMenuForm({ ...menuForm, description: e.target.value })}
+                    className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-red-600 resize-none"
+                    rows="3"
+                    placeholder="Brief description of the item"
+                  />
+                </div>
+
+                <div className="sm:col-span-2 flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="isAvailable"
+                    checked={menuForm.isAvailable}
+                    onChange={(e) => setMenuForm({ ...menuForm, isAvailable: e.target.checked })}
+                    className="w-5 h-5 text-red-600 rounded focus:ring-2 focus:ring-red-600"
+                  />
+                  <label htmlFor="isAvailable" className="text-sm font-medium text-gray-700">
+                    Available for ordering
+                  </label>
+                </div>
               </div>
             </div>
 
@@ -1014,10 +1172,20 @@ function Admin() {
               </button>
               <button
                 onClick={handleSaveMenuItem}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                disabled={uploadingImage}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Save className="w-5 h-5" />
-                {editingMenuItem ? 'Update Item' : 'Create Item'}
+                {uploadingImage ? (
+                  <>
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Uploading...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-5 h-5" />
+                    <span>{editingMenuItem ? 'Update Item' : 'Create Item'}</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

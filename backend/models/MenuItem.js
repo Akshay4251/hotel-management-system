@@ -25,34 +25,43 @@ const MenuItem = sequelize.define('MenuItem', {
   },
   image: {
     type: DataTypes.STRING,
-    allowNull: true
+    allowNull: true,
+    field: 'image'  // Maps to 'image' column in database
   },
   isVeg: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_veg'
   },
   isAvailable: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_available'
   },
   preparationTime: {
-    type: DataTypes.INTEGER, // in minutes
-    defaultValue: 15
+    type: DataTypes.INTEGER,
+    defaultValue: 15,
+    field: 'preparation_time'
   },
   spiceLevel: {
     type: DataTypes.ENUM('mild', 'medium', 'hot'),
-    allowNull: true
+    allowNull: true,
+    field: 'spice_level'
   },
   allergens: {
     type: DataTypes.ARRAY(DataTypes.STRING),
-    defaultValue: []
+    defaultValue: [],
+    field: 'allergens'
   },
   tags: {
     type: DataTypes.ARRAY(DataTypes.STRING),
-    defaultValue: []
+    defaultValue: [],
+    field: 'tags'
   }
 }, {
-  timestamps: true
+  tableName: 'menu_items',
+  timestamps: true,
+  underscored: true
 });
 
 module.exports = MenuItem;
