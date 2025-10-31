@@ -1,4 +1,3 @@
-// backend/models/MenuItem.js
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -24,35 +23,45 @@ const MenuItem = sequelize.define('MenuItem', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false
   },
-  // ✅ Store as base64 text
   image: {
-    type: DataTypes.TEXT, // Changed from STRING
-    allowNull: true
-  },
-  // ✅ OR store as binary (BYTEA in PostgreSQL)
-  imageData: {
-    type: DataTypes.BLOB('long'), // Binary data
-    allowNull: true
-  },
-  imageMimeType: {
-    type: DataTypes.STRING, // e.g., 'image/jpeg'
-    allowNull: true
+    type: DataTypes.STRING,
+    allowNull: true,
+    field: 'image'  // Maps to 'image' column in database
   },
   isVeg: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_veg'
   },
   isAvailable: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true
+    defaultValue: true,
+    field: 'is_available'
   },
   preparationTime: {
     type: DataTypes.INTEGER,
-    defaultValue: 15
+    defaultValue: 15,
+    field: 'preparation_time'
+  },
+  spiceLevel: {
+    type: DataTypes.ENUM('mild', 'medium', 'hot'),
+    allowNull: true,
+    field: 'spice_level'
+  },
+  allergens: {
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    defaultValue: [],
+    field: 'allergens'
+  },
+  tags: {
+    type: DataTypes.ARRAY(DataTypes.STRING),
+    defaultValue: [],
+    field: 'tags'
   }
 }, {
-  tableName: 'MenuItems',
-  timestamps: true
+  tableName: 'menu_items',
+  timestamps: true,
+  underscored: true
 });
 
 module.exports = MenuItem;
