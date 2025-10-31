@@ -9,9 +9,8 @@ const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 
-const { connectDB } = require('./config/database');
+const { connectDB, sequelize } = require('./config/database');
 const socketHandler = require('./socket/socketHandler');
-
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -65,7 +64,7 @@ app.use(helmet({
 app.set('io', io);
 
 // ============================================
-// ✅ CRITICAL FIX: SERVE UPLOADS DIRECTORY
+// ✅ SERVE UPLOADS DIRECTORY
 // ============================================
 const uploadsPath = path.join(__dirname, 'public/uploads');
 console.log('📁 Uploads directory path:', uploadsPath);
@@ -142,60 +141,6 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ✅ IMAGE TEST ENDPOINT
-app.get('/api/test-upload', (req, res) => {
-  const menuPath = path.join(__dirname, 'public/uploads/menu');
-  
-  if (!fs.existsSync(menuPath)) {
-    return res.json({
-      success: false,
-      message: 'Upload directory does not exist',
-      path: menuPath
-    });
-  }
-  
-  const files = fs.readdirSync(menuPath);
-  
-  res.json({
-    success: true,
-    uploadsPath: menuPath,
-    fileCount: files.length,
-    files: files.slice(0, 10).map(f => ({
-      name: f,
-      url: `/uploads/menu/${f}`,
-      fullUrl: `${req.protocol}://${req.get('host')}/uploads/menu/${f}`
-    }))
-  });
-});
-
-// ===== DEBUG ENDPOINT =====
-app.get('/debug/dist', (req, res) => {
-  const distPath = path.join(__dirname, 'dist');
-  
-  if (!fs.existsSync(distPath)) {
-    return res.json({
-      exists: false,
-      path: distPath
-    });
-  }
-  
-  const contents = fs.readdirSync(distPath);
-  const assetsPath = path.join(distPath, 'assets');
-  let assets = [];
-  
-  if (fs.existsSync(assetsPath)) {
-    assets = fs.readdirSync(assetsPath);
-  }
-  
-  res.json({
-    exists: true,
-    path: distPath,
-    contents: contents,
-    assetsCount: assets.length,
-    assets: assets.slice(0, 10)
-  });
-});
-
 // ===== API ROUTES =====
 app.get('/api', (req, res) => {
   res.json({
@@ -211,8 +156,7 @@ app.use('/api/menu', menuRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/admin', adminRoutes);
-// Add this with other routes (BEFORE the SPA fallback)
-app.use('/api/debug', require('./routes/debugRoutes'));
+
 // ===== SPA FALLBACK (MUST BE LAST) =====
 if (isProduction) {
   app.get('*', (req, res) => {
@@ -279,29 +223,136 @@ process.on('SIGTERM', () => {
 // ===== START SERVER =====
 const PORT = process.env.PORT || 5000;
 
+// ============================================
+// ✅ AUTO-MIGRATION ON STARTUP
+// ============================================
+const runMigrations = async () => {
+  try {
+    console.log('\n╔════════════════════════════════════════════╗');
+    console.log('║  🔧 RUNNING DATABASE MIGRATIONS           ║');
+    console.log('╚════════════════════════════════════════════╝\n');
+    
+    // ============================================
+    // Migration 1: Add tableId to Bills table
+    // ============================================
+    try {
+      console.log('🔍 Checking Bills table structure...');
+      
+      const [columns] = await sequelize.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'Bills' 
+          AND column_name = 'tableId';
+      `);
+      
+      if (columns.length === 0) {
+        console.log('📝 Migration needed: Adding tableId column to Bills table');
+        
+        // Step 1: Add column
+        console.log('   Step 1/3: Adding column...');
+        await sequelize.query(`
+          ALTER TABLE "Bills" 
+          ADD COLUMN "tableId" UUID;
+        `);
+        console.log('   ✅ Column added');
+        
+        // Step 2: Update existing bills
+        console.log('   Step 2/3: Updating existing bills...');
+        const [updateResult] = await sequelize.query(`
+          UPDATE "Bills" 
+          SET "tableId" = "Orders"."tableId"
+          FROM "Orders"
+          WHERE "Bills"."orderId" = "Orders"."id"
+            AND "Bills"."tableId" IS NULL;
+        `);
+        console.log('   ✅ Existing bills updated');
+        
+        // Step 3: Add foreign key constraint
+        console.log('   Step 3/3: Adding foreign key constraint...');
+        await sequelize.query(`
+          ALTER TABLE "Bills"
+          ADD CONSTRAINT "Bills_tableId_fkey"
+          FOREIGN KEY ("tableId")
+          REFERENCES "Tables"("id")
+          ON DELETE RESTRICT
+          ON UPDATE CASCADE;
+        `);
+        console.log('   ✅ Foreign key constraint added');
+        
+        console.log('✅ Migration completed: Bills.tableId added successfully\n');
+      } else {
+        console.log('✅ Bills table is up to date (tableId column exists)\n');
+      }
+    } catch (migrationError) {
+      // Check if error is because column already exists
+      if (migrationError.message.includes('already exists')) {
+        console.log('✅ Bills table is up to date (column already exists)\n');
+      } else {
+        console.error('⚠️  Bills migration warning:', migrationError.message);
+        console.error('    This may not affect functionality if the column already exists.');
+        console.error('    Error details:', migrationError.stack);
+        console.log('');
+      }
+    }
+    
+    // ============================================
+    // Add more migrations here in the future
+    // ============================================
+    
+    console.log('╔════════════════════════════════════════════╗');
+    console.log('║  ✅ ALL MIGRATIONS COMPLETED              ║');
+    console.log('╚════════════════════════════════════════════╝\n');
+    
+  } catch (error) {
+    console.error('╔════════════════════════════════════════════╗');
+    console.error('║  ❌ MIGRATION ERROR                       ║');
+    console.error('╚════════════════════════════════════════════╝');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+    console.log('');
+    console.warn('⚠️  Continuing server startup despite migration error...\n');
+  }
+};
+
+// ============================================
+// START SERVER WITH MIGRATIONS
+// ============================================
 const startServer = async () => {
   try {
+    // Step 1: Connect to database
     await connectDB();
     
+    // Step 2: Run migrations
+    await runMigrations();
+    
+    // Step 3: Start HTTP server
     server.listen(PORT, '0.0.0.0', () => {
       console.log('╔════════════════════════════════════════════╗');
-      console.log(`║  🏨 Hotel Management System               ║`);
-      console.log(`║  ✅ Server: http://localhost:${PORT}           ║`);
-      console.log(`║  ✅ Environment: ${(process.env.NODE_ENV || 'development').padEnd(22)}║`);
-      console.log(`║  ✅ Socket.IO: Enabled                     ║`);
-      console.log(`║  ✅ Uploads: /uploads                      ║`);
+      console.log('║  🏨 Hotel Management System               ║');
+      console.log('╚════════════════════════════════════════════╝');
+      console.log(`✅ Server running on port ${PORT}`);
+      console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`✅ Socket.IO: Enabled`);
+      console.log(`✅ Uploads: /uploads`);
       if (isProduction) {
-        console.log(`║  ✅ Serving: /dist                         ║`);
+        console.log(`✅ Serving: /dist`);
       }
       console.log('╚════════════════════════════════════════════╝');
-      console.log(`\n🌐 Test image access: http://localhost:${PORT}/api/test-upload\n`);
+      console.log(`\n🌐 Access your app at: http://localhost:${PORT}\n`);
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('╔════════════════════════════════════════════╗');
+    console.error('║  ❌ FAILED TO START SERVER                ║');
+    console.error('╚════════════════════════════════════════════╝');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
     process.exit(1);
   }
 };
 
+// ============================================
+// START THE APPLICATION
+// ============================================
 startServer();
 
 module.exports = { app, server, io };
