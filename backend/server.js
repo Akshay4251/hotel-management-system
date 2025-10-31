@@ -7,6 +7,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const path = require('path');
+const fs = require('fs');
 
 const { connectDB } = require('./config/database');
 const socketHandler = require('./socket/socketHandler');
@@ -26,95 +27,115 @@ const server = http.createServer(app);
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = !isProduction;
 
-// ===== CORS SETUP =====
-const FRONTEND_URLS = isDevelopment 
-  ? [
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://127.0.0.1:5173',
-      'http://127.0.0.1:3000'
-    ]
-  : [];
+console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
 
 // ===== SOCKET.IO =====
 const io = socketIo(server, {
   cors: {
-    origin: isDevelopment ? FRONTEND_URLS : true,
+    origin: isDevelopment ? ['http://localhost:5173', 'http://localhost:3000'] : true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
   },
-  transports: ['websocket', 'polling'],
-  pingTimeout: 60000,
-  pingInterval: 25000
+  transports: ['websocket', 'polling']
 });
 
-// ===== CORS MIDDLEWARE =====
-if (isDevelopment) {
-  app.use(cors({
-    origin: FRONTEND_URLS,
-    credentials: true
-  }));
-}
-
-// ===== SECURITY (Modified for serving static files) =====
-app.use(helmet({
-  contentSecurityPolicy: false,  // Disable CSP for now
-  crossOriginResourcePolicy: false,
-  crossOriginEmbedderPolicy: false
-}));
-
-// ===== OTHER MIDDLEWARE =====
+// ===== BASIC MIDDLEWARE (BEFORE STATIC FILES) =====
 app.use(compression());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(isDevelopment ? 'dev' : 'combined'));
 
+// ===== CORS (Development only) =====
+if (isDevelopment) {
+  app.use(cors({
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    credentials: true
+  }));
+}
+
+// ===== HELMET (Relaxed for static files) =====
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: false
+}));
+
 // Make io accessible
 app.set('io', io);
 
-// ===== SERVE STATIC FILES IN PRODUCTION (BEFORE API ROUTES) =====
+// ===== SERVE STATIC FILES (PRODUCTION ONLY - MUST BE EARLY) =====
 if (isProduction) {
   const distPath = path.join(__dirname, 'dist');
   
-  console.log('📁 Serving static files from:', distPath);
+  console.log('📁 Static files path:', distPath);
   
-  // Check if dist exists
-  const fs = require('fs');
+  // Check dist folder
   if (fs.existsSync(distPath)) {
-    console.log('✅ dist directory found');
-    console.log('📄 dist contents:', fs.readdirSync(distPath));
+    console.log('✅ dist folder exists');
+    
+    const files = fs.readdirSync(distPath);
+    console.log('📄 dist contents:', files);
+    
+    // Check assets folder
+    const assetsPath = path.join(distPath, 'assets');
+    if (fs.existsSync(assetsPath)) {
+      const assetFiles = fs.readdirSync(assetsPath);
+      console.log('📦 assets folder contains', assetFiles.length, 'files');
+    } else {
+      console.warn('⚠️  No assets folder found');
+    }
   } else {
-    console.error('❌ dist directory NOT found at:', distPath);
+    console.error('❌ dist folder NOT found at:', distPath);
   }
   
-  // Serve static files with proper headers
+  // Serve static files with NO restrictions
   app.use(express.static(distPath, {
-    maxAge: '1d',
+    index: false,  // Don't auto-serve index.html
+    dotfiles: 'ignore',
     etag: true,
     lastModified: true,
-    setHeaders: (res, filePath) => {
-      // Set proper MIME types
-      if (filePath.endsWith('.js')) {
-        res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
-      } else if (filePath.endsWith('.css')) {
-        res.setHeader('Content-Type', 'text/css; charset=UTF-8');
-      } else if (filePath.endsWith('.html')) {
-        res.setHeader('Content-Type', 'text/html; charset=UTF-8');
-      }
-      // Disable X-Content-Type-Options for static files
-      res.removeHeader('X-Content-Type-Options');
-    }
+    maxAge: '1d',
+    redirect: false
   }));
+  
+  console.log('✅ Static file middleware enabled');
 }
 
 // ===== HEALTH CHECK =====
 app.get('/health', (req, res) => {
   res.json({ 
-    status: 'OK', 
-    message: 'Server is running',
+    status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     uptime: process.uptime()
+  });
+});
+
+// ===== DEBUG ENDPOINT =====
+app.get('/debug/dist', (req, res) => {
+  const distPath = path.join(__dirname, 'dist');
+  
+  if (!fs.existsSync(distPath)) {
+    return res.json({
+      exists: false,
+      path: distPath
+    });
+  }
+  
+  const contents = fs.readdirSync(distPath);
+  const assetsPath = path.join(distPath, 'assets');
+  let assets = [];
+  
+  if (fs.existsSync(assetsPath)) {
+    assets = fs.readdirSync(assetsPath);
+  }
+  
+  res.json({
+    exists: true,
+    path: distPath,
+    contents: contents,
+    assetsCount: assets.length,
+    assets: assets.slice(0, 10) // First 10 files
   });
 });
 
@@ -134,27 +155,25 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/admin', adminRoutes);
 
-// ===== SPA FALLBACK (MUST BE LAST - AFTER API ROUTES) =====
+// ===== SPA FALLBACK (MUST BE LAST) =====
 if (isProduction) {
-  app.get('*', (req, res, next) => {
+  app.get('*', (req, res) => {
     // Don't serve index.html for API routes
     if (req.path.startsWith('/api/')) {
-      return next();
+      return res.status(404).json({ error: 'API route not found' });
     }
     
     const indexPath = path.join(__dirname, 'dist', 'index.html');
     
-    // Check if file exists
-    const fs = require('fs');
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
     } else {
-      res.status(404).send('index.html not found');
+      res.status(500).send('Application not built correctly. index.html not found.');
     }
   });
 }
 
-// ===== 404 HANDLER (Development only) =====
+// ===== 404 HANDLER (Development) =====
 if (isDevelopment) {
   app.use((req, res) => {
     res.status(404).json({
@@ -165,11 +184,17 @@ if (isDevelopment) {
   });
 }
 
-// ===== ERROR HANDLER =====
+// ===== ERROR HANDLER (MUST BE LAST) =====
 app.use((err, req, res, next) => {
-  console.error('❌ Error:', err.stack);
+  console.error('╔════════════════════════════════════╗');
+  console.error('║  ❌ ERROR                         ║');
+  console.error('╚════════════════════════════════════╝');
+  console.error('Path:', req.path);
+  console.error('Method:', req.method);
+  console.error('Error:', err.message);
+  console.error('Stack:', err.stack);
   
-  // Don't send HTML errors for API routes
+  // For API routes, send JSON
   if (req.path.startsWith('/api/')) {
     return res.status(err.status || 500).json({
       success: false,
@@ -178,20 +203,20 @@ app.use((err, req, res, next) => {
     });
   }
   
-  // For other routes, send JSON error
+  // For other routes
   res.status(err.status || 500).json({
     error: err.message || 'Internal Server Error'
   });
 });
 
-// ===== SOCKET.IO HANDLER =====
+// ===== SOCKET.IO =====
 socketHandler(io);
 
 // ===== GRACEFUL SHUTDOWN =====
 process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
+  console.log('SIGTERM received: closing server');
   server.close(() => {
-    console.log('HTTP server closed');
+    console.log('Server closed');
   });
 });
 
@@ -209,7 +234,7 @@ const startServer = async () => {
       console.log(`║  ✅ Environment: ${(process.env.NODE_ENV || 'development').padEnd(22)}║`);
       console.log(`║  ✅ Socket.IO: Enabled                     ║`);
       if (isProduction) {
-        console.log(`║  ✅ Frontend: Serving from /dist           ║`);
+        console.log(`║  ✅ Serving: /dist                         ║`);
       }
       console.log('╚════════════════════════════════════════════╝');
     });
