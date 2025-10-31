@@ -63,20 +63,51 @@ app.use(helmet({
 // Make io accessible
 app.set('io', io);
 
-// ===== SERVE STATIC FILES (PRODUCTION ONLY - MUST BE EARLY) =====
+// ============================================
+// ✅ CRITICAL FIX: SERVE UPLOADS DIRECTORY
+// ============================================
+const uploadsPath = path.join(__dirname, 'public/uploads');
+console.log('📁 Uploads directory path:', uploadsPath);
+
+// Create uploads directory if it doesn't exist
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+  console.log('✅ Created uploads directory');
+} else {
+  console.log('✅ Uploads directory exists');
+  
+  // Log uploaded files
+  const menuPath = path.join(uploadsPath, 'menu');
+  if (fs.existsSync(menuPath)) {
+    const files = fs.readdirSync(menuPath);
+    console.log(`📸 Found ${files.length} images in menu folder`);
+    if (files.length > 0 && files.length <= 5) {
+      console.log('   Sample files:', files);
+    }
+  }
+}
+
+// ✅ Serve uploads folder statically
+app.use('/uploads', express.static(uploadsPath, {
+  maxAge: '1d',
+  etag: true,
+  lastModified: true
+}));
+
+console.log('✅ Static file serving enabled for /uploads');
+
+// ===== SERVE STATIC FILES (PRODUCTION ONLY) =====
 if (isProduction) {
   const distPath = path.join(__dirname, 'dist');
   
   console.log('📁 Static files path:', distPath);
   
-  // Check dist folder
   if (fs.existsSync(distPath)) {
     console.log('✅ dist folder exists');
     
     const files = fs.readdirSync(distPath);
     console.log('📄 dist contents:', files);
     
-    // Check assets folder
     const assetsPath = path.join(distPath, 'assets');
     if (fs.existsSync(assetsPath)) {
       const assetFiles = fs.readdirSync(assetsPath);
@@ -88,9 +119,8 @@ if (isProduction) {
     console.error('❌ dist folder NOT found at:', distPath);
   }
   
-  // Serve static files with NO restrictions
   app.use(express.static(distPath, {
-    index: false,  // Don't auto-serve index.html
+    index: false,
     dotfiles: 'ignore',
     etag: true,
     lastModified: true,
@@ -98,7 +128,7 @@ if (isProduction) {
     redirect: false
   }));
   
-  console.log('✅ Static file middleware enabled');
+  console.log('✅ Static file middleware enabled for dist');
 }
 
 // ===== HEALTH CHECK =====
@@ -108,6 +138,32 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     uptime: process.uptime()
+  });
+});
+
+// ✅ IMAGE TEST ENDPOINT
+app.get('/api/test-upload', (req, res) => {
+  const menuPath = path.join(__dirname, 'public/uploads/menu');
+  
+  if (!fs.existsSync(menuPath)) {
+    return res.json({
+      success: false,
+      message: 'Upload directory does not exist',
+      path: menuPath
+    });
+  }
+  
+  const files = fs.readdirSync(menuPath);
+  
+  res.json({
+    success: true,
+    uploadsPath: menuPath,
+    fileCount: files.length,
+    files: files.slice(0, 10).map(f => ({
+      name: f,
+      url: `/uploads/menu/${f}`,
+      fullUrl: `${req.protocol}://${req.get('host')}/uploads/menu/${f}`
+    }))
   });
 });
 
@@ -135,7 +191,7 @@ app.get('/debug/dist', (req, res) => {
     path: distPath,
     contents: contents,
     assetsCount: assets.length,
-    assets: assets.slice(0, 10) // First 10 files
+    assets: assets.slice(0, 10)
   });
 });
 
@@ -158,9 +214,9 @@ app.use('/api/admin', adminRoutes);
 // ===== SPA FALLBACK (MUST BE LAST) =====
 if (isProduction) {
   app.get('*', (req, res) => {
-    // Don't serve index.html for API routes
-    if (req.path.startsWith('/api/')) {
-      return res.status(404).json({ error: 'API route not found' });
+    // Don't serve index.html for API routes or uploads
+    if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
+      return res.status(404).json({ error: 'Not found' });
     }
     
     const indexPath = path.join(__dirname, 'dist', 'index.html');
@@ -194,7 +250,6 @@ app.use((err, req, res, next) => {
   console.error('Error:', err.message);
   console.error('Stack:', err.stack);
   
-  // For API routes, send JSON
   if (req.path.startsWith('/api/')) {
     return res.status(err.status || 500).json({
       success: false,
@@ -203,7 +258,6 @@ app.use((err, req, res, next) => {
     });
   }
   
-  // For other routes
   res.status(err.status || 500).json({
     error: err.message || 'Internal Server Error'
   });
@@ -230,13 +284,15 @@ const startServer = async () => {
     server.listen(PORT, '0.0.0.0', () => {
       console.log('╔════════════════════════════════════════════╗');
       console.log(`║  🏨 Hotel Management System               ║`);
-      console.log(`║  ✅ Server: http://0.0.0.0:${PORT}            ║`);
+      console.log(`║  ✅ Server: http://localhost:${PORT}           ║`);
       console.log(`║  ✅ Environment: ${(process.env.NODE_ENV || 'development').padEnd(22)}║`);
       console.log(`║  ✅ Socket.IO: Enabled                     ║`);
+      console.log(`║  ✅ Uploads: /uploads                      ║`);
       if (isProduction) {
         console.log(`║  ✅ Serving: /dist                         ║`);
       }
       console.log('╚════════════════════════════════════════════╝');
+      console.log(`\n🌐 Test image access: http://localhost:${PORT}/api/test-upload\n`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);

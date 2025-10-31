@@ -150,6 +150,7 @@ function Admin() {
   const loadMenu = async () => {
     try {
       const res = await menuAPI.getAll();
+      console.log('📋 Menu items loaded:', res.data.data);
       setMenuItems(res.data.data || []);
       
       // Extract unique categories
@@ -238,6 +239,7 @@ function Admin() {
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result);
+      console.log('✅ Image preview created');
     };
     reader.readAsDataURL(file);
   };
@@ -250,10 +252,12 @@ function Admin() {
     formData.append('image', selectedImage);
 
     try {
+      console.log('📤 Uploading image...');
       const response = await menuAPI.uploadImage(formData);
+      console.log('✅ Upload response:', response.data);
       return response.data.imageUrl;
     } catch (error) {
-      console.error('Image upload failed:', error);
+      console.error('❌ Image upload failed:', error);
       toast.error('Failed to upload image');
       return null;
     } finally {
@@ -267,6 +271,8 @@ function Admin() {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
+    // Clear image from form when removing
+    setMenuForm(prev => ({ ...prev, image: '' }));
   };
 
   // ===================
@@ -289,6 +295,9 @@ function Admin() {
   };
 
   const handleEditMenuItem = (item) => {
+    console.log('📝 Editing menu item:', item);
+    console.log('   Image value:', item.image);
+    
     setEditingMenuItem(item);
     setMenuForm({
       name: item.name,
@@ -298,8 +307,19 @@ function Admin() {
       isAvailable: item.isAvailable,
       image: item.image || ''
     });
+    
+    // ✅ CRITICAL FIX: Properly set image preview for editing
     setSelectedImage(null);
-    setImagePreview(item.image ? `${API_BASE_URL}${item.image}` : null);
+    if (item.image) {
+      const imageUrl = item.image.startsWith('http') 
+        ? item.image 
+        : `${API_BASE_URL}${item.image}`;
+      console.log('   Setting preview URL:', imageUrl);
+      setImagePreview(imageUrl);
+    } else {
+      setImagePreview(null);
+    }
+    
     setShowMenuModal(true);
   };
 
@@ -310,27 +330,36 @@ function Admin() {
     }
 
     try {
-      let imageUrl = menuForm.image;
+      let imageUrl = menuForm.image; // Keep existing image by default
 
-      // Upload new image if selected
+      // ✅ CRITICAL: Only upload if NEW image is selected
       if (selectedImage) {
+        console.log('📤 Uploading new image...');
+        setUploadingImage(true);
         const uploadedUrl = await uploadImage();
         if (uploadedUrl) {
           imageUrl = uploadedUrl;
+          console.log('✅ New image uploaded:', imageUrl);
         }
+        setUploadingImage(false);
+      } else {
+        console.log('ℹ️  No new image selected, keeping existing:', imageUrl || 'NONE');
       }
 
       const menuData = {
         ...menuForm,
+        price: parseFloat(menuForm.price),
         image: imageUrl || null
       };
 
+      console.log('💾 Saving menu item:', menuData);
+
       if (editingMenuItem) {
         await menuAPI.update(editingMenuItem.id, menuData);
-        toast.success('Menu item updated');
+        toast.success('Menu item updated successfully');
       } else {
         await menuAPI.create(menuData);
-        toast.success('Menu item created');
+        toast.success('Menu item created successfully');
       }
       
       setShowMenuModal(false);
@@ -338,6 +367,7 @@ function Admin() {
       setImagePreview(null);
       loadMenu();
     } catch (error) {
+      console.error('❌ Save error:', error);
       toast.error(error.response?.data?.message || 'Failed to save menu item');
     }
   };
@@ -428,6 +458,20 @@ function Admin() {
     setBill(null);
     setSelectedOrder(null);
     refreshData();
+  };
+
+  // ===================
+  // Helper Functions
+  // ===================
+
+  const getItemImageUrl = (item) => {
+    if (!item.image) return null;
+    
+    const imageUrl = item.image.startsWith('http') 
+      ? item.image 
+      : `${API_BASE_URL}${item.image}`;
+    
+    return imageUrl;
   };
 
   // ===================
@@ -817,70 +861,75 @@ function Admin() {
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {filteredMenuItems.map(item => (
-                    <div key={item.id} className="border rounded-xl overflow-hidden hover:shadow-lg transition-all">
-                      {/* Image Section - FIXED */}
-                      {item.image ? (
-                        <div className="h-48 bg-gray-100 overflow-hidden">
-                          <img
-                            src={item.image.startsWith('http') ? item.image : `${API_BASE_URL}${item.image}`}
-                            alt={item.name}
-                            className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
-                            onError={(e) => {
-                              e.target.onerror = null; // Prevent infinite loop
-                              e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23f3f4f6" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="16"%3ENo Image%3C/text%3E%3C/svg%3E';
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="h-48 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
-                          <ImageIcon className="w-16 h-16 text-gray-400" />
-                        </div>
-                      )}
-                      
-                      {/* Content Section */}
-                      <div className="p-4">
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h3 className="font-bold text-gray-900 mb-1">{item.name}</h3>
-                            <p className="text-sm text-gray-600 mb-2">{item.category}</p>
-                            <p className="text-lg font-bold text-red-600">₹{parseFloat(item.price).toFixed(2)}</p>
+                  {filteredMenuItems.map(item => {
+                    const imageUrl = getItemImageUrl(item);
+                    
+                    return (
+                      <div key={item.id} className="border rounded-xl overflow-hidden hover:shadow-lg transition-all">
+                        {/* ✅ FIXED: Image Section */}
+                        {imageUrl ? (
+                          <div className="h-48 bg-gray-100 overflow-hidden">
+                            <img
+                              src={imageUrl}
+                              alt={item.name}
+                              className="w-full h-full object-cover hover:scale-105 transition-transform duration-300"
+                              onError={(e) => {
+                                console.error('❌ Image load failed for:', item.name, imageUrl);
+                                e.target.onerror = null;
+                                e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="200" height="200"%3E%3Crect fill="%23f3f4f6" width="200" height="200"/%3E%3Ctext x="50%25" y="50%25" text-anchor="middle" dy=".3em" fill="%239ca3af" font-family="sans-serif" font-size="16"%3ENo Image%3C/text%3E%3C/svg%3E';
+                              }}
+                            />
                           </div>
-                          <button
-                            onClick={() => toggleMenuAvailability(item)}
-                            className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
-                              item.isAvailable
-                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                                : 'bg-red-100 text-red-700 hover:bg-red-200'
-                            }`}
-                          >
-                            {item.isAvailable ? 'Available' : 'Unavailable'}
-                          </button>
-                        </div>
-                        
-                        {item.description && (
-                          <p className="text-sm text-gray-600 mb-3 line-clamp-2">{item.description}</p>
+                        ) : (
+                          <div className="h-48 bg-gradient-to-br from-gray-100 to-gray-200 flex items-center justify-center">
+                            <ImageIcon className="w-16 h-16 text-gray-400" />
+                          </div>
                         )}
                         
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => handleEditMenuItem(item)}
-                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
-                          >
-                            <Edit className="w-4 h-4" />
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDeleteMenuItem(item)}
-                            className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete
-                          </button>
+                        {/* Content Section */}
+                        <div className="p-4">
+                          <div className="flex items-start justify-between mb-3">
+                            <div className="flex-1">
+                              <h3 className="font-bold text-gray-900 mb-1">{item.name}</h3>
+                              <p className="text-sm text-gray-600 mb-2">{item.category}</p>
+                              <p className="text-lg font-bold text-red-600">₹{parseFloat(item.price).toFixed(2)}</p>
+                            </div>
+                            <button
+                              onClick={() => toggleMenuAvailability(item)}
+                              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors ${
+                                item.isAvailable
+                                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                  : 'bg-red-100 text-red-700 hover:bg-red-200'
+                              }`}
+                            >
+                              {item.isAvailable ? 'Available' : 'Unavailable'}
+                            </button>
+                          </div>
+                          
+                          {item.description && (
+                            <p className="text-sm text-gray-600 mb-3 line-clamp-2">{item.description}</p>
+                          )}
+                          
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleEditMenuItem(item)}
+                              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm font-medium transition-colors"
+                            >
+                              <Edit className="w-4 h-4" />
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteMenuItem(item)}
+                              className="flex-1 flex items-center justify-center gap-2 px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-sm font-medium transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -1027,7 +1076,11 @@ function Admin() {
                 {editingMenuItem ? 'Edit Menu Item' : 'Add New Menu Item'}
               </h2>
               <button 
-                onClick={() => setShowMenuModal(false)}
+                onClick={() => {
+                  setShowMenuModal(false);
+                  setSelectedImage(null);
+                  setImagePreview(null);
+                }}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -1041,23 +1094,28 @@ function Admin() {
                   Item Image
                 </label>
                 <div className="space-y-3">
-                  {/* Preview */}
+                  {/* ✅ FIXED: Preview */}
                   {imagePreview ? (
                     <div className="relative w-full h-64 bg-gray-100 rounded-lg overflow-hidden">
                       <img
                         src={imagePreview}
                         alt="Preview"
                         className="w-full h-full object-cover"
+                        onError={(e) => {
+                          console.error('❌ Preview image failed to load:', imagePreview);
+                        }}
                       />
                       <button
+                        type="button"
                         onClick={removeImage}
-                        className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors"
+                        className="absolute top-2 right-2 p-2 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors shadow-lg"
                       >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
                   ) : (
-                    <div className="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-red-600 transition-colors"
+                    <div 
+                      className="w-full h-64 bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-red-600 transition-colors"
                       onClick={() => fileInputRef.current?.click()}
                     >
                       <Upload className="w-12 h-12 text-gray-400 mb-3" />
@@ -1166,7 +1224,11 @@ function Admin() {
 
             <div className="p-6 border-t flex gap-3 sticky bottom-0 bg-white">
               <button
-                onClick={() => setShowMenuModal(false)}
+                onClick={() => {
+                  setShowMenuModal(false);
+                  setSelectedImage(null);
+                  setImagePreview(null);
+                }}
                 className="flex-1 px-4 py-2 border rounded-lg hover:bg-gray-50 transition-colors"
               >
                 Cancel

@@ -8,7 +8,6 @@ const path = require('path');
 // GET Routes
 // ======================
 
-// Get all menu items
 router.get('/', async (req, res) => {
   try {
     const { category, isVeg, available } = req.query;
@@ -23,6 +22,16 @@ router.get('/', async (req, res) => {
       order: [['category', 'ASC'], ['name', 'ASC']]
     });
     
+    // ✅ Debug logging
+    console.log(`📋 Fetched ${menuItems.length} menu items`);
+    menuItems.forEach(item => {
+      if (item.image) {
+        console.log(`  ✅ ${item.name}: ${item.image}`);
+      } else {
+        console.log(`  ❌ ${item.name}: NO IMAGE`);
+      }
+    });
+    
     res.json({ success: true, data: menuItems });
   } catch (error) {
     console.error('Error fetching menu items:', error);
@@ -30,7 +39,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Get menu categories
 router.get('/categories', async (req, res) => {
   try {
     const categories = await MenuItem.findAll({
@@ -49,7 +57,6 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-// Get single menu item by ID
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -62,6 +69,8 @@ router.get('/:id', async (req, res) => {
       });
     }
     
+    console.log(`📄 Retrieved: ${menuItem.name}, Image: ${menuItem.image || 'NONE'}`);
+    
     res.json({ success: true, data: menuItem });
   } catch (error) {
     console.error('Error fetching menu item:', error);
@@ -73,7 +82,7 @@ router.get('/:id', async (req, res) => {
 // CREATE Routes
 // ======================
 
-// Upload image endpoint
+// ✅ IMPROVED: Upload image endpoint
 router.post('/upload-image', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
@@ -83,10 +92,16 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
       });
     }
 
-    // Return the relative URL path
     const imageUrl = `/uploads/menu/${req.file.filename}`;
     
-    console.log('✅ Image uploaded:', imageUrl);
+    console.log('╔════════════════════════════════════╗');
+    console.log('║  ✅ IMAGE UPLOADED                ║');
+    console.log('╚════════════════════════════════════╝');
+    console.log('📁 Filename:', req.file.filename);
+    console.log('📍 Path:', req.file.path);
+    console.log('🌐 URL:', imageUrl);
+    console.log('📦 Size:', (req.file.size / 1024).toFixed(2), 'KB');
+    console.log('');
     
     res.json({
       success: true,
@@ -104,15 +119,25 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
   }
 });
 
-// Create menu item
+// ✅ IMPROVED: Create menu item
 router.post('/', async (req, res) => {
   try {
-    const menuItemData = {
+    console.log('╔════════════════════════════════════╗');
+    console.log('║  📝 CREATING MENU ITEM            ║');
+    console.log('╚════════════════════════════════════╝');
+    console.log('Data received:', {
       name: req.body.name,
       category: req.body.category,
       price: req.body.price,
+      image: req.body.image
+    });
+    
+    const menuItemData = {
+      name: req.body.name,
+      category: req.body.category,
+      price: parseFloat(req.body.price),
       description: req.body.description || null,
-      image: req.body.image || null,  // Using 'image' field
+      image: req.body.image || null,
       isAvailable: req.body.isAvailable !== undefined ? req.body.isAvailable : true,
       isVeg: req.body.isVeg !== undefined ? req.body.isVeg : true,
       preparationTime: req.body.preparationTime || 15,
@@ -123,9 +148,12 @@ router.post('/', async (req, res) => {
 
     const menuItem = await MenuItem.create(menuItemData);
     
-    console.log('✅ Menu item created:', menuItem.name);
+    console.log('✅ Menu item created successfully');
+    console.log('   ID:', menuItem.id);
+    console.log('   Name:', menuItem.name);
+    console.log('   Image:', menuItem.image || 'NO IMAGE');
+    console.log('');
     
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('menu-updated', { action: 'created', data: menuItem });
@@ -138,7 +166,11 @@ router.post('/', async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Error creating menu item:', error);
-    res.status(500).json({ success: false, message: error.message });
+    res.status(500).json({ 
+      success: false, 
+      message: error.message,
+      details: error.errors ? error.errors.map(e => e.message) : []
+    });
   }
 });
 
@@ -146,7 +178,7 @@ router.post('/', async (req, res) => {
 // UPDATE Routes
 // ======================
 
-// Update menu item
+// ✅ IMPROVED: Update menu item
 router.put('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -159,13 +191,20 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    // Update fields
+    console.log('╔════════════════════════════════════╗');
+    console.log('║  📝 UPDATING MENU ITEM            ║');
+    console.log('╚════════════════════════════════════╝');
+    console.log('Item:', menuItem.name);
+    console.log('Old image:', menuItem.image || 'NONE');
+    console.log('New image:', req.body.image !== undefined ? req.body.image || 'REMOVED' : 'UNCHANGED');
+
     const updatedData = {
       name: req.body.name || menuItem.name,
       category: req.body.category || menuItem.category,
-      price: req.body.price !== undefined ? req.body.price : menuItem.price,
+      price: req.body.price !== undefined ? parseFloat(req.body.price) : menuItem.price,
       description: req.body.description !== undefined ? req.body.description : menuItem.description,
-      image: req.body.image !== undefined ? req.body.image : menuItem.image,  // Using 'image' field
+      // ✅ CRITICAL: Only update image if explicitly provided
+      image: req.body.image !== undefined ? req.body.image : menuItem.image,
       isAvailable: req.body.isAvailable !== undefined ? req.body.isAvailable : menuItem.isAvailable,
       isVeg: req.body.isVeg !== undefined ? req.body.isVeg : menuItem.isVeg,
       preparationTime: req.body.preparationTime || menuItem.preparationTime,
@@ -176,9 +215,10 @@ router.put('/:id', async (req, res) => {
 
     await menuItem.update(updatedData);
     
-    console.log('✅ Menu item updated:', menuItem.name);
+    console.log('✅ Updated successfully');
+    console.log('   Final image:', menuItem.image || 'NO IMAGE');
+    console.log('');
     
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('menu-updated', { action: 'updated', data: menuItem });
@@ -195,7 +235,6 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Update menu item availability
 router.patch('/:id/availability', async (req, res) => {
   try {
     const { id } = req.params;
@@ -214,7 +253,6 @@ router.patch('/:id/availability', async (req, res) => {
     
     console.log(`✅ ${menuItem.name} availability: ${isAvailable}`);
     
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('menu-updated', { action: 'availability', data: menuItem });
@@ -235,7 +273,6 @@ router.patch('/:id/availability', async (req, res) => {
 // DELETE Routes
 // ======================
 
-// Delete menu item
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
@@ -249,18 +286,19 @@ router.delete('/:id', async (req, res) => {
     }
 
     const itemName = menuItem.name;
+    const itemImage = menuItem.image;
 
     // Delete associated image if exists
-    if (menuItem.image) {
-      const imagePath = path.join(__dirname, '../public', menuItem.image);
-      deleteFile(imagePath);
+    if (itemImage) {
+      const imagePath = path.join(__dirname, '../public', itemImage);
+      const deleted = deleteFile(imagePath);
+      console.log(deleted ? `✅ Deleted image: ${itemImage}` : `⚠️  Image not found: ${itemImage}`);
     }
 
     await menuItem.destroy();
     
     console.log('✅ Menu item deleted:', itemName);
     
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
       io.emit('menu-updated', { action: 'deleted', id: id });
@@ -276,7 +314,6 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// Delete image
 router.post('/delete-image', async (req, res) => {
   try {
     const { imageUrl } = req.body;
