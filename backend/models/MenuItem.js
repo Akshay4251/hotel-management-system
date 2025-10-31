@@ -25,43 +25,36 @@ const MenuItem = sequelize.define('MenuItem', {
   },
   image: {
     type: DataTypes.STRING,
-    allowNull: true,
-    field: 'image'  // Maps to 'image' column in database
+    allowNull: true
   },
   isVeg: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true,
-    field: 'is_veg'
+    defaultValue: true
   },
   isAvailable: {
     type: DataTypes.BOOLEAN,
-    defaultValue: true,
-    field: 'is_available'
+    defaultValue: true
   },
   preparationTime: {
     type: DataTypes.INTEGER,
-    defaultValue: 15,
-    field: 'preparation_time'
+    defaultValue: 15
   },
   spiceLevel: {
     type: DataTypes.ENUM('mild', 'medium', 'hot'),
-    allowNull: true,
-    field: 'spice_level'
+    allowNull: true
   },
   allergens: {
     type: DataTypes.ARRAY(DataTypes.STRING),
-    defaultValue: [],
-    field: 'allergens'
+    defaultValue: []
   },
   tags: {
     type: DataTypes.ARRAY(DataTypes.STRING),
-    defaultValue: [],
-    field: 'tags'
+    defaultValue: []
   }
 }, {
-  tableName: 'menu_items',
-  timestamps: true,
-  underscored: true
+  // ✅ CRITICAL: Use PascalCase to match foreign key constraint
+  tableName: 'MenuItems',  // Changed from 'menu_items'
+  timestamps: true
 });
 
 module.exports = MenuItem;

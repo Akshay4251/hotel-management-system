@@ -9,11 +9,19 @@ const OrderItem = sequelize.define('OrderItem', {
   },
   orderId: {
     type: DataTypes.UUID,
-    allowNull: false
+    allowNull: false,
+    references: {
+      model: 'Orders',  // ✅ PascalCase
+      key: 'id'
+    }
   },
   menuItemId: {
     type: DataTypes.UUID,
-    allowNull: false
+    allowNull: false,
+    references: {
+      model: 'MenuItems',  // ✅ CRITICAL: Must match MenuItem tableName
+      key: 'id'
+    }
   },
   quantity: {
     type: DataTypes.INTEGER,
@@ -53,6 +61,7 @@ const OrderItem = sequelize.define('OrderItem', {
     allowNull: true
   }
 }, {
+  tableName: 'OrderItems',  // ✅ PascalCase
   timestamps: true
 });
 
