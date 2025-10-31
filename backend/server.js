@@ -233,42 +233,96 @@ const runMigrations = async () => {
     console.log('╚════════════════════════════════════════════╝\n');
     
     // ============================================
-    // Migration 1: Add tableId to Bills table
+    // Migration 1: Sync Bills table structure
     // ============================================
     try {
       console.log('🔍 Checking Bills table structure...');
       
-      const [columns] = await sequelize.query(`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'Bills' 
-          AND column_name = 'tableId';
+      // Get current columns
+      const [currentColumns] = await sequelize.query(`
+        SELECT column_name, data_type, is_nullable
+        FROM information_schema.columns
+        WHERE table_name = 'Bills'
+        ORDER BY ordinal_position;
       `);
       
-      if (columns.length === 0) {
-        console.log('📝 Migration needed: Adding tableId column to Bills table');
+      const columnNames = currentColumns.map(col => col.column_name);
+      console.log('   Current columns:', columnNames.join(', '));
+      
+      // Define required columns
+      const requiredColumns = {
+        tableId: { type: 'UUID', nullable: true },
+        tax: { type: 'DECIMAL(10,2)', nullable: false, default: 0 },
+        subtotal: { type: 'DECIMAL(10,2)', nullable: false, default: 0 },
+        discount: { type: 'DECIMAL(10,2)', nullable: true, default: 0 },
+        totalAmount: { type: 'DECIMAL(10,2)', nullable: false },
+        isPaid: { type: 'BOOLEAN', nullable: true, default: false },
+        paymentMethod: { type: 'VARCHAR', nullable: true },
+        paidAmount: { type: 'DECIMAL(10,2)', nullable: true },
+        paidAt: { type: 'TIMESTAMP', nullable: true }
+      };
+      
+      let migrationsRun = 0;
+      
+      // Add missing columns
+      for (const [columnName, config] of Object.entries(requiredColumns)) {
+        if (!columnNames.includes(columnName)) {
+          console.log(`   📝 Adding column: ${columnName}`);
+          
+          let sql = `ALTER TABLE "Bills" ADD COLUMN "${columnName}" ${config.type}`;
+          
+          if (config.default !== undefined) {
+            if (typeof config.default === 'string') {
+              sql += ` DEFAULT '${config.default}'`;
+            } else if (typeof config.default === 'boolean') {
+              sql += ` DEFAULT ${config.default}`;
+            } else {
+              sql += ` DEFAULT ${config.default}`;
+            }
+          }
+          
+          if (!config.nullable) {
+            sql += ` NOT NULL`;
+          }
+          
+          await sequelize.query(sql);
+          console.log(`   ✅ Added: ${columnName}`);
+          migrationsRun++;
+        }
+      }
+      
+      // Update existing bills with data from orders
+      if (migrationsRun > 0) {
+        console.log('   📝 Updating existing bills from orders...');
         
-        // Step 1: Add column
-        console.log('   Step 1/3: Adding column...');
         await sequelize.query(`
-          ALTER TABLE "Bills" 
-          ADD COLUMN "tableId" UUID;
+          UPDATE "Bills" b
+          SET 
+            "tableId" = o."tableId",
+            "subtotal" = COALESCE(b."subtotal", o."subtotal", 0),
+            "tax" = COALESCE(b."tax", o."tax", 0),
+            "discount" = COALESCE(b."discount", o."discount", 0),
+            "totalAmount" = COALESCE(b."totalAmount", o."total", 0)
+          FROM "Orders" o
+          WHERE b."orderId" = o."id"
+            AND (b."tableId" IS NULL OR b."tax" IS NULL OR b."subtotal" IS NULL);
         `);
-        console.log('   ✅ Column added');
         
-        // Step 2: Update existing bills
-        console.log('   Step 2/3: Updating existing bills...');
-        const [updateResult] = await sequelize.query(`
-          UPDATE "Bills" 
-          SET "tableId" = "Orders"."tableId"
-          FROM "Orders"
-          WHERE "Bills"."orderId" = "Orders"."id"
-            AND "Bills"."tableId" IS NULL;
-        `);
         console.log('   ✅ Existing bills updated');
+      }
+      
+      // Add foreign key constraint for tableId if it doesn't exist
+      const [constraints] = await sequelize.query(`
+        SELECT constraint_name
+        FROM information_schema.table_constraints
+        WHERE table_name = 'Bills'
+          AND constraint_type = 'FOREIGN KEY'
+          AND constraint_name = 'Bills_tableId_fkey';
+      `);
+      
+      if (constraints.length === 0 && columnNames.includes('tableId')) {
+        console.log('   📝 Adding foreign key constraint...');
         
-        // Step 3: Add foreign key constraint
-        console.log('   Step 3/3: Adding foreign key constraint...');
         await sequelize.query(`
           ALTER TABLE "Bills"
           ADD CONSTRAINT "Bills_tableId_fkey"
@@ -277,20 +331,24 @@ const runMigrations = async () => {
           ON DELETE RESTRICT
           ON UPDATE CASCADE;
         `);
-        console.log('   ✅ Foreign key constraint added');
         
-        console.log('✅ Migration completed: Bills.tableId added successfully\n');
-      } else {
-        console.log('✅ Bills table is up to date (tableId column exists)\n');
+        console.log('   ✅ Foreign key constraint added');
+        migrationsRun++;
       }
+      
+      if (migrationsRun > 0) {
+        console.log(`✅ Migration completed: ${migrationsRun} changes applied to Bills table\n`);
+      } else {
+        console.log('✅ Bills table is up to date\n');
+      }
+      
     } catch (migrationError) {
       // Check if error is because column already exists
       if (migrationError.message.includes('already exists')) {
-        console.log('✅ Bills table is up to date (column already exists)\n');
+        console.log('✅ Bills table is up to date (columns already exist)\n');
       } else {
         console.error('⚠️  Bills migration warning:', migrationError.message);
-        console.error('    This may not affect functionality if the column already exists.');
-        console.error('    Error details:', migrationError.stack);
+        console.error('    Continuing startup...');
         console.log('');
       }
     }
