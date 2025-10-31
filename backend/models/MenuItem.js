@@ -1,3 +1,4 @@
+// backend/models/MenuItem.js
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../config/database');
 
@@ -23,9 +24,18 @@ const MenuItem = sequelize.define('MenuItem', {
     type: DataTypes.DECIMAL(10, 2),
     allowNull: false
   },
-  // ✅ ONLY use image field for base64 storage
+  // ✅ Store as base64 text
   image: {
-    type: DataTypes.TEXT, // Stores base64 data URI or URL
+    type: DataTypes.TEXT, // Changed from STRING
+    allowNull: true
+  },
+  // ✅ OR store as binary (BYTEA in PostgreSQL)
+  imageData: {
+    type: DataTypes.BLOB('long'), // Binary data
+    allowNull: true
+  },
+  imageMimeType: {
+    type: DataTypes.STRING, // e.g., 'image/jpeg'
     allowNull: true
   },
   isVeg: {
@@ -39,18 +49,6 @@ const MenuItem = sequelize.define('MenuItem', {
   preparationTime: {
     type: DataTypes.INTEGER,
     defaultValue: 15
-  },
-  spiceLevel: {
-    type: DataTypes.ENUM('mild', 'medium', 'hot'),
-    allowNull: true
-  },
-  allergens: {
-    type: DataTypes.ARRAY(DataTypes.STRING),
-    defaultValue: []
-  },
-  tags: {
-    type: DataTypes.ARRAY(DataTypes.STRING),
-    defaultValue: []
   }
 }, {
   tableName: 'MenuItems',
