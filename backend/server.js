@@ -22,11 +22,11 @@ const adminRoutes = require('./routes/adminRoutes');
 const app = express();
 const server = http.createServer(app);
 
-// ===== ENVIRONMENT DETECTION =====
+// ===== ENVIRONMENT =====
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = !isProduction;
 
-// ===== FRONTEND URL CONFIGURATION =====
+// ===== CORS SETUP =====
 const FRONTEND_URLS = isDevelopment 
   ? [
       'http://localhost:5173',
@@ -34,79 +34,33 @@ const FRONTEND_URLS = isDevelopment
       'http://127.0.0.1:5173',
       'http://127.0.0.1:3000'
     ]
-  : [
-      process.env.FRONTEND_URL || 'https://your-app.onrender.com'
-    ];
+  : [];
 
-console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
-console.log('🔗 Allowed Origins:', FRONTEND_URLS);
-
-// ===== SOCKET.IO CONFIGURATION =====
+// ===== SOCKET.IO =====
 const io = socketIo(server, {
   cors: {
-    origin: function(origin, callback) {
-      // Allow requests with no origin (mobile apps, Postman, curl)
-      if (!origin) return callback(null, true);
-      
-      if (FRONTEND_URLS.includes(origin) || isDevelopment) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'));
-      }
-    },
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    credentials: true
+    origin: isDevelopment ? FRONTEND_URLS : true,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
   },
   transports: ['websocket', 'polling'],
   pingTimeout: 60000,
   pingInterval: 25000
 });
 
-// ===== CORS CONFIGURATION =====
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, etc.)
-    if (!origin) return callback(null, true);
-    
-    if (FRONTEND_URLS.includes(origin) || isDevelopment) {
-      callback(null, true);
-    } else {
-      console.log('❌ Blocked by CORS:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
-  exposedHeaders: ['Content-Disposition']
-};
+// ===== CORS MIDDLEWARE =====
+if (isDevelopment) {
+  app.use(cors({
+    origin: FRONTEND_URLS,
+    credentials: true
+  }));
+}
 
-// Apply CORS before other middleware
-app.use(cors(corsOptions));
-
-// Additional CORS headers for all responses
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && (FRONTEND_URLS.includes(origin) || isDevelopment)) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept');
-  res.header('Access-Control-Expose-Headers', 'Content-Disposition');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// ===== SECURITY MIDDLEWARE =====
+// ===== SECURITY (Modified for serving static files) =====
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  crossOriginEmbedderPolicy: false,
-  contentSecurityPolicy: false
+  contentSecurityPolicy: false,  // Disable CSP for now
+  crossOriginResourcePolicy: false,
+  crossOriginEmbedderPolicy: false
 }));
 
 // ===== OTHER MIDDLEWARE =====
@@ -115,23 +69,43 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(isDevelopment ? 'dev' : 'combined'));
 
-// Make io accessible to routes
+// Make io accessible
 app.set('io', io);
 
-// ===== SERVE STATIC FRONTEND IN PRODUCTION =====
+// ===== SERVE STATIC FILES IN PRODUCTION (BEFORE API ROUTES) =====
 if (isProduction) {
-  const frontendPath = path.join(__dirname, 'dist');
-  app.use(express.static(frontendPath));
-  console.log('📁 Serving static files from:', frontendPath);
+  const distPath = path.join(__dirname, 'dist');
+  
+  console.log('📁 Serving static files from:', distPath);
+  
+  // Check if dist exists
+  const fs = require('fs');
+  if (fs.existsSync(distPath)) {
+    console.log('✅ dist directory found');
+    console.log('📄 dist contents:', fs.readdirSync(distPath));
+  } else {
+    console.error('❌ dist directory NOT found at:', distPath);
+  }
+  
+  // Serve static files with proper headers
+  app.use(express.static(distPath, {
+    maxAge: '1d',
+    etag: true,
+    lastModified: true,
+    setHeaders: (res, filePath) => {
+      // Set proper MIME types
+      if (filePath.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript; charset=UTF-8');
+      } else if (filePath.endsWith('.css')) {
+        res.setHeader('Content-Type', 'text/css; charset=UTF-8');
+      } else if (filePath.endsWith('.html')) {
+        res.setHeader('Content-Type', 'text/html; charset=UTF-8');
+      }
+      // Disable X-Content-Type-Options for static files
+      res.removeHeader('X-Content-Type-Options');
+    }
+  }));
 }
-
-// ===== API ROUTES =====
-app.use('/api/auth', authRoutes);
-app.use('/api/tables', tableRoutes);
-app.use('/api/menu', menuRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/bills', billRoutes);
-app.use('/api/admin', adminRoutes);
 
 // ===== HEALTH CHECK =====
 app.get('/health', (req, res) => {
@@ -144,6 +118,7 @@ app.get('/health', (req, res) => {
   });
 });
 
+// ===== API ROUTES =====
 app.get('/api', (req, res) => {
   res.json({
     message: '🏨 Hotel Management API',
@@ -152,10 +127,30 @@ app.get('/api', (req, res) => {
   });
 });
 
-// ===== SERVE FRONTEND (Must be AFTER API routes) =====
+app.use('/api/auth', authRoutes);
+app.use('/api/tables', tableRoutes);
+app.use('/api/menu', menuRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/bills', billRoutes);
+app.use('/api/admin', adminRoutes);
+
+// ===== SPA FALLBACK (MUST BE LAST - AFTER API ROUTES) =====
 if (isProduction) {
-  app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+  app.get('*', (req, res, next) => {
+    // Don't serve index.html for API routes
+    if (req.path.startsWith('/api/')) {
+      return next();
+    }
+    
+    const indexPath = path.join(__dirname, 'dist', 'index.html');
+    
+    // Check if file exists
+    const fs = require('fs');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      res.status(404).send('index.html not found');
+    }
   });
 }
 
@@ -170,13 +165,22 @@ if (isDevelopment) {
   });
 }
 
-// ===== ERROR HANDLING MIDDLEWARE =====
+// ===== ERROR HANDLER =====
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err.stack);
+  
+  // Don't send HTML errors for API routes
+  if (req.path.startsWith('/api/')) {
+    return res.status(err.status || 500).json({
+      success: false,
+      message: err.message || 'Internal Server Error',
+      ...(isDevelopment && { stack: err.stack })
+    });
+  }
+  
+  // For other routes, send JSON error
   res.status(err.status || 500).json({
-    success: false,
-    message: err.message || 'Internal Server Error',
-    ...(isDevelopment && { stack: err.stack })
+    error: err.message || 'Internal Server Error'
   });
 });
 
