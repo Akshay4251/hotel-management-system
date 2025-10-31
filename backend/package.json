@@ -4,8 +4,8 @@
   "description": "Hotel Management System",
   "main": "server.js",
   "engines": {
-    "node": "18.x",
-    "npm": ">=9.0.0"
+    "node": "20.x",
+    "npm": ">=10.0.0"
   },
   "scripts": {
     "start": "node server.js",
