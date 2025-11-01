@@ -4,10 +4,12 @@ const { Table, Order } = require('../models');
 const { Op } = require('sequelize');
 const QRCode = require('qrcode');
 
-// Build customer link for a table
+// ✅ UPDATED: Build customer link (can be overridden by query param)
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-const customerLinkForTable = (tableNumber) =>
-  `${FRONTEND_URL}/menu/${encodeURIComponent(tableNumber)}?src=qr`;
+const customerLinkForTable = (tableNumber, customUrl = null) => {
+  if (customUrl) return customUrl;
+  return `${FRONTEND_URL}/menu/${encodeURIComponent(tableNumber)}?src=qr`;
+};
 
 // Get all tables
 router.get('/', async (req, res) => {
@@ -158,18 +160,21 @@ router.delete('/:id', async (req, res) => {
 });
 
 /**
- * Print page with all table QR codes
- * GET /api/tables/qr/print?size=260
+ * ✅ UPDATED: Print page with all table QR codes
+ * GET /api/tables/qr/print?size=260&url=https://yourdomain.com
  */
 router.get('/qr/print', async (req, res) => {
   try {
-    const { size = 260 } = req.query;
+    const { size = 260, url: baseUrl } = req.query;
     const tables = await Table.findAll({ order: [['number', 'ASC']] });
+
+    const publicUrl = baseUrl || FRONTEND_URL;
+    console.log('📄 Generating print page with base URL:', publicUrl);
 
     // Generate QR codes as data URLs for embedding in HTML
     const tableQRs = await Promise.all(
       tables.map(async (t) => {
-        const link = customerLinkForTable(t.number);
+        const link = `${publicUrl}/menu/${encodeURIComponent(t.number)}?src=qr`;
         const qrDataUrl = await QRCode.toDataURL(link, {
           width: parseInt(size, 10) || 260,
           margin: 2,
@@ -283,7 +288,7 @@ router.get('/qr/print', async (req, res) => {
         <div class="header no-print">
           <div>
             <div class="brand">🍽️ Table QR Codes</div>
-            <div class="info">${tables.length} tables • ${FRONTEND_URL}</div>
+            <div class="info">${tables.length} tables • ${publicUrl}</div>
           </div>
           <button onclick="window.print()" class="print-btn">
             🖨️ Print All QR Codes
@@ -301,19 +306,18 @@ router.get('/qr/print', async (req, res) => {
             </div>
           `).join('')}
         </div>
-
-        <script>
-          // Optional: Auto-print on load (uncomment if needed)
-          // window.onload = () => window.print();
-        </script>
       </body>
       </html>
     `.trim();
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    // ✅ NO CACHE for print page
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.send(html);
   } catch (error) {
-    console.error('QR print page failed:', error);
+    console.error('❌ QR print page failed:', error);
     res.status(500).send(`
       <!DOCTYPE html>
       <html>
@@ -328,13 +332,13 @@ router.get('/qr/print', async (req, res) => {
 });
 
 /**
- * Generate QR PNG for a specific table
- * GET /api/tables/:number/qr?size=280&download=1
+ * ✅ UPDATED: Generate QR PNG for a specific table
+ * GET /api/tables/:number/qr?size=280&download=1&url=https://yourdomain.com/menu/1
  */
 router.get('/:number/qr', async (req, res) => {
   try {
     const { number } = req.params;
-    const { size = 280, download } = req.query;
+    const { size = 280, download, url: customUrl } = req.query;
 
     const table = await Table.findOne({ where: { number } });
     if (!table) {
@@ -344,7 +348,10 @@ router.get('/:number/qr', async (req, res) => {
       });
     }
 
-    const link = customerLinkForTable(table.number);
+    // ✅ Use custom URL from query param or build default
+    const link = customUrl || customerLinkForTable(table.number);
+    console.log(`🔗 Generating QR for Table ${number}:`, link);
+
     const qrSize = parseInt(size, 10) || 280;
     
     const opts = { 
@@ -357,16 +364,18 @@ router.get('/:number/qr', async (req, res) => {
       errorCorrectionLevel: 'M'
     };
 
-    // Set CORS headers explicitly for images
+    // ✅ Set CORS headers
     const origin = req.headers.origin;
     if (origin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     }
     
-    // Set content headers
+    // ✅ Set content headers with NO CACHE
     res.setHeader('Content-Type', 'image/png');
-    res.setHeader('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     
     if (download === '1') {
       res.setHeader('Content-Disposition', `attachment; filename="table-${table.number}-qr.png"`);
@@ -374,12 +383,12 @@ router.get('/:number/qr', async (req, res) => {
       res.setHeader('Content-Disposition', `inline; filename="table-${table.number}-qr.png"`);
     }
 
-    // Generate and stream QR code
+    // ✅ Generate and stream QR code
     const buffer = await QRCode.toBuffer(link, opts);
     res.send(buffer);
 
   } catch (error) {
-    console.error('QR generation failed:', error);
+    console.error('❌ QR generation failed:', error);
     res.status(500).json({ 
       success: false, 
       message: 'Failed to generate QR code',

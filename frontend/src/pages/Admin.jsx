@@ -65,6 +65,9 @@ function Admin() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef(null);
 
+  // ✅ QR Code cache buster - updates when tables change
+  const [qrCacheBuster, setQrCacheBuster] = useState(Date.now());
+
   // Real-time Updates
   useRealTimeUpdates({
     onOrdersUpdate: (orders) => {
@@ -73,6 +76,7 @@ function Admin() {
     onTablesUpdate: () => {
       calculateStats(globalOrders, globalTables);
       setTables(globalTables || []);
+      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes when tables update
     },
     onNewOrder: (order) => {
       toast.success(`New order - Table ${order.table?.number}`, { duration: 2000 });
@@ -90,6 +94,7 @@ function Admin() {
     onRefresh: () => {
       refreshData();
       fetchDashboard();
+      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes
     }
   });
 
@@ -142,6 +147,7 @@ function Admin() {
     try {
       const res = await tablesAPI.getAll();
       setTables(res.data.data || []);
+      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes after loading tables
     } catch (error) {
       toast.error('Failed to load tables');
     }
@@ -159,6 +165,20 @@ function Admin() {
     } catch (error) {
       toast.error('Failed to load menu');
     }
+  };
+
+  // ===================
+  // ✅ QR CODE HELPERS (FIXED)
+  // ===================
+
+  // Generate customer-facing menu link for a table
+  const tableCustomerLink = (tableNumber) => 
+    `${PUBLIC_URL}/menu/${encodeURIComponent(tableNumber)}?src=qr`;
+
+  // Generate QR code image URL with cache busting and correct customer URL
+  const qrImgUrl = (tableNumber, size = 220) => {
+    const customerUrl = tableCustomerLink(tableNumber);
+    return `${API_BASE_URL}/api/tables/${encodeURIComponent(tableNumber)}/qr?size=${size}&url=${encodeURIComponent(customerUrl)}&t=${qrCacheBuster}`;
   };
 
   // ===================
@@ -195,6 +215,7 @@ function Admin() {
       setShowTableModal(false);
       loadTables();
       refreshData();
+      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to save table');
     }
@@ -208,6 +229,7 @@ function Admin() {
       toast.success('Table deleted');
       loadTables();
       refreshData();
+      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to delete table');
     }
@@ -271,7 +293,6 @@ function Admin() {
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
-    // Clear image from form when removing
     setMenuForm(prev => ({ ...prev, image: '' }));
   };
 
@@ -308,7 +329,6 @@ function Admin() {
       image: item.image || ''
     });
     
-    // ✅ CRITICAL FIX: Properly set image preview for editing
     setSelectedImage(null);
     if (item.image) {
       const imageUrl = item.image.startsWith('http') 
@@ -330,9 +350,8 @@ function Admin() {
     }
 
     try {
-      let imageUrl = menuForm.image; // Keep existing image by default
+      let imageUrl = menuForm.image;
 
-      // ✅ CRITICAL: Only upload if NEW image is selected
       if (selectedImage) {
         console.log('📤 Uploading new image...');
         setUploadingImage(true);
@@ -485,11 +504,6 @@ function Admin() {
     return matchesSearch && matchesCategory;
   });
 
-  const qrImgUrl = (tableNumber, size = 220) =>
-    `${API_BASE_URL}/api/tables/${encodeURIComponent(tableNumber)}/qr?size=${size}`;
-  const tableCustomerLink = (tableNumber) =>
-    `${PUBLIC_URL}/menu/${encodeURIComponent(tableNumber)}?src=qr`;
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -514,7 +528,10 @@ function Admin() {
                 <span>{new Date().toLocaleDateString()}</span>
               </div>
               <button 
-                onClick={refreshData}
+                onClick={() => {
+                  refreshData();
+                  setQrCacheBuster(Date.now()); // ✅ Also refresh QR codes
+                }}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Refresh Data"
               >
@@ -866,7 +883,6 @@ function Admin() {
                     
                     return (
                       <div key={item.id} className="border rounded-xl overflow-hidden hover:shadow-lg transition-all">
-                        {/* ✅ FIXED: Image Section */}
                         {imageUrl ? (
                           <div className="h-48 bg-gray-100 overflow-hidden">
                             <img
@@ -886,7 +902,6 @@ function Admin() {
                           </div>
                         )}
                         
-                        {/* Content Section */}
                         <div className="p-4">
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex-1">
@@ -936,13 +951,16 @@ function Admin() {
           </div>
         )}
 
-        {/* QR Codes Tab */}
+        {/* ✅ QR Codes Tab - FIXED */}
         {activeTab === 'qr' && (
           <div className="bg-white rounded-xl p-6">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900">QR Codes by Table</h3>
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">QR Codes by Table</h3>
+                <p className="text-sm text-gray-600 mt-1">Current URL: {PUBLIC_URL}</p>
+              </div>
               <a
-                href={`${API_BASE_URL}/api/tables/qr/print?size=260`}
+                href={`${API_BASE_URL}/api/tables/qr/print?size=260&url=${encodeURIComponent(PUBLIC_URL)}`}
                 target="_blank"
                 rel="noreferrer"
                 className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-2"
@@ -960,7 +978,7 @@ function Admin() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
                 {tables.map((t) => (
-                  <div key={t.id} className="border-2 rounded-xl p-4 hover:border-red-600 transition-all">
+                  <div key={`${t.id}-${qrCacheBuster}`} className="border-2 rounded-xl p-4 hover:border-red-600 transition-all">
                     <div className="text-center">
                       <p className="text-sm font-bold text-gray-900 mb-3">Table {t.number}</p>
                       <div className="bg-white rounded-lg p-3 border-2 inline-block">
@@ -969,6 +987,10 @@ function Admin() {
                           alt={`Table ${t.number} QR`}
                           className="w-[180px] h-[180px]"
                           loading="lazy"
+                          key={`qr-img-${t.number}-${qrCacheBuster}`}
+                          onError={(e) => {
+                            console.error('❌ QR Code load failed:', e.target.src);
+                          }}
                         />
                       </div>
                       <p className="text-xs text-gray-500 mt-3 break-all">
@@ -976,7 +998,7 @@ function Admin() {
                       </p>
                       <div className="flex flex-col gap-2 mt-4">
                         <a
-                          href={`${API_BASE_URL}/api/tables/${t.number}/qr?size=600&download=1`}
+                          href={`${API_BASE_URL}/api/tables/${t.number}/qr?size=600&url=${encodeURIComponent(tableCustomerLink(t.number))}&download=1`}
                           download
                           className="w-full px-3 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 text-sm font-medium text-center transition-colors"
                         >
@@ -1094,7 +1116,6 @@ function Admin() {
                   Item Image
                 </label>
                 <div className="space-y-3">
-                  {/* ✅ FIXED: Preview */}
                   {imagePreview ? (
                     <div className="relative w-full h-64 bg-gray-100 rounded-lg overflow-hidden">
                       <img
