@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { QrCode, Hash, Users, ChefHat, Shield, Utensils, X, Camera } from 'lucide-react';
+import { QrCode, Hash, Users, ChefHat, Shield, Utensils, X, ArrowLeft } from 'lucide-react';
 import { tablesAPI } from '../services/api';
 import toast from 'react-hot-toast';
 import { Html5QrcodeScanner } from 'html5-qrcode';
@@ -22,8 +22,6 @@ function Landing() {
           qrbox: { width: 250, height: 250 },
           aspectRatio: 1.0,
           showTorchButtonIfSupported: true,
-          showZoomSliderIfSupported: true,
-          defaultZoomValueIfSupported: 2,
         },
         false
       );
@@ -38,44 +36,40 @@ function Landing() {
     }
   }, [showScanner]);
 
-  const onScanSuccess = async (decodedText, decodedResult) => {
-    console.log('✅ QR Scan success:', decodedText);
+  const onScanSuccess = async (decodedText) => {
+    console.log('✅ QR Scanned:', decodedText);
+    
+    let tableNum;
     
     try {
-      // Extract table number from URL
-      // Expected format: https://yourdomain.com/menu/5?src=qr
+      // Try parsing as URL first
       const url = new URL(decodedText);
       const pathParts = url.pathname.split('/');
-      const tableNumberFromQR = pathParts[pathParts.length - 1];
+      tableNum = pathParts[pathParts.length - 1];
+    } catch {
+      // Not a URL, treat as direct table number
+      tableNum = decodedText.trim();
+    }
 
-      if (tableNumberFromQR) {
-        setShowScanner(false);
-        toast.success(`Table ${tableNumberFromQR} detected!`);
-        
-        // Verify table exists
-        setLoading(true);
-        const response = await tablesAPI.verify(tableNumberFromQR);
-        
+    if (tableNum && !isNaN(tableNum)) {
+      setLoading(true);
+      try {
+        const response = await tablesAPI.verify(tableNum);
         if (response.data.success) {
-          navigate(`/menu/${tableNumberFromQR}`);
+          // Navigate directly
+          navigate(`/menu/${tableNum}`);
         }
-      } else {
-        toast.error('Invalid QR code format');
+      } catch (error) {
+        toast.error('Invalid table number');
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('QR parsing error:', error);
-      toast.error('Invalid QR code. Please scan a table QR code.');
-    } finally {
-      setLoading(false);
+    } else {
+      toast.error('Invalid QR code');
     }
   };
 
   const onScanError = (errorMessage) => {
-    // Ignore continuous scan errors (camera is just searching)
-    // Only log actual errors
-    if (!errorMessage.includes('No MultiFormat Readers')) {
-      console.warn('QR Scan error:', errorMessage);
-    }
+    // Silently ignore scan errors (camera is searching)
   };
 
   const handleTableSubmit = async (e) => {
@@ -108,9 +102,67 @@ function Landing() {
     setShowScanner(false);
   };
 
+  // Show scanner view
+  if (showScanner) {
+    return (
+      <div className="min-h-screen bg-black flex flex-col">
+        {/* Header */}
+        <div className="bg-white px-4 py-3 flex items-center justify-between shadow-lg">
+          <button
+            onClick={handleCloseScanner}
+            className="flex items-center gap-2 text-gray-700 hover:text-red-600 transition-colors"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            <span className="font-medium">Back</span>
+          </button>
+          <h3 className="text-lg font-bold text-gray-900">Scan QR Code</h3>
+          <div className="w-16"></div> {/* Spacer for centering */}
+        </div>
+
+        {/* Scanner */}
+        <div className="flex-1 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md">
+            <div 
+              id="qr-reader" 
+              className="w-full rounded-xl overflow-hidden shadow-2xl"
+            ></div>
+            
+            {loading && (
+              <div className="mt-6 flex items-center justify-center gap-3 bg-white px-6 py-4 rounded-xl shadow-lg">
+                <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm font-medium text-gray-700">Verifying table...</span>
+              </div>
+            )}
+
+            {!loading && (
+              <div className="mt-6 p-4 bg-white bg-opacity-90 rounded-xl text-center">
+                <p className="text-sm text-gray-700 font-medium">
+                  📱 Point camera at table QR code
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Manual Entry Footer */}
+        <div className="bg-white px-4 py-4 border-t">
+          <button
+            onClick={() => {
+              setShowScanner(false);
+              setShowInput(true);
+            }}
+            className="w-full text-sm text-gray-600 hover:text-red-600 transition-colors font-medium"
+          >
+            Can't scan? Enter table number manually →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Main landing page
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-600 to-orange-600">
-      {/* Main Content */}
       <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
           {/* Logo */}
@@ -135,7 +187,7 @@ function Landing() {
             {/* Options */}
             <div className="grid grid-cols-2 gap-4 mb-6">
               <button 
-                className="p-6 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all border-2 border-transparent hover:border-red-200"
+                className="p-6 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all border-2 border-transparent hover:border-red-200 active:scale-95"
                 onClick={handleOpenScanner}
               >
                 <div className="flex flex-col items-center space-y-3">
@@ -151,7 +203,7 @@ function Landing() {
                   setShowInput(!showInput);
                   setShowScanner(false);
                 }}
-                className={`p-6 rounded-xl transition-all border-2 ${
+                className={`p-6 rounded-xl transition-all border-2 active:scale-95 ${
                   showInput 
                     ? 'bg-red-600 text-white border-red-600' 
                     : 'bg-gray-50 hover:bg-gray-100 border-transparent hover:border-red-200'
@@ -184,7 +236,7 @@ function Landing() {
                 />
                 <button 
                   type="submit" 
-                  className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-all disabled:opacity-50"
+                  className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-all disabled:opacity-50 active:scale-95"
                   disabled={loading}
                 >
                   {loading ? 'Verifying...' : 'Continue'}
@@ -198,21 +250,21 @@ function Landing() {
               <div className="grid grid-cols-3 gap-3">
                 <button
                   onClick={() => navigate('/waiter')}
-                  className="flex flex-col items-center p-3 rounded-xl bg-gray-50 hover:bg-gray-100"
+                  className="flex flex-col items-center p-3 rounded-xl bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all"
                 >
                   <Users className="w-6 h-6 text-gray-700 mb-2" />
                   <span className="text-xs font-medium text-gray-700">Waiter</span>
                 </button>
                 <button
                   onClick={() => navigate('/kot')}
-                  className="flex flex-col items-center p-3 rounded-xl bg-gray-50 hover:bg-gray-100"
+                  className="flex flex-col items-center p-3 rounded-xl bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all"
                 >
                   <ChefHat className="w-6 h-6 text-gray-700 mb-2" />
                   <span className="text-xs font-medium text-gray-700">Kitchen</span>
                 </button>
                 <button
                   onClick={() => navigate('/admin')}
-                  className="flex flex-col items-center p-3 rounded-xl bg-gray-50 hover:bg-gray-100"
+                  className="flex flex-col items-center p-3 rounded-xl bg-gray-50 hover:bg-gray-100 active:scale-95 transition-all"
                 >
                   <Shield className="w-6 h-6 text-gray-700 mb-2" />
                   <span className="text-xs font-medium text-gray-700">Admin</span>
@@ -227,61 +279,6 @@ function Landing() {
           </p>
         </div>
       </div>
-
-      {/* QR Scanner Modal */}
-      {showScanner && (
-        <div className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between p-4 border-b">
-              <div className="flex items-center gap-2">
-                <Camera className="w-5 h-5 text-red-600" />
-                <h3 className="text-lg font-bold text-gray-900">Scan Table QR Code</h3>
-              </div>
-              <button
-                onClick={handleCloseScanner}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
-            </div>
-
-            {/* Scanner */}
-            <div className="p-4">
-              <div 
-                id="qr-reader" 
-                className="w-full rounded-xl overflow-hidden"
-              ></div>
-              
-              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-800 text-center">
-                  📱 Point your camera at the QR code on your table
-                </p>
-              </div>
-
-              {loading && (
-                <div className="mt-4 flex items-center justify-center gap-2">
-                  <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-                  <span className="text-sm text-gray-600">Verifying table...</span>
-                </div>
-              )}
-            </div>
-
-            {/* Manual Entry Link */}
-            <div className="p-4 border-t bg-gray-50">
-              <button
-                onClick={() => {
-                  setShowScanner(false);
-                  setShowInput(true);
-                }}
-                className="w-full text-sm text-gray-600 hover:text-red-600 transition-colors"
-              >
-                Can't scan? Enter table number manually →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

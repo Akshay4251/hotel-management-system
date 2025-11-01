@@ -62,3 +62,57 @@ body {
 code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
+
+/* QR Scanner Styling - Clean & Minimal */
+#qr-reader {
+  border: none;
+}
+
+#qr-reader video {
+  border-radius: 0.75rem;
+  display: block;
+  width: 100% !important;
+  height: auto !important;
+}
+
+#qr-reader__dashboard {
+  padding: 0 !important;
+  margin-top: 1rem !important;
+}
+
+#qr-reader__dashboard_section {
+  text-align: center !important;
+}
+
+#qr-reader__dashboard_section_csr {
+  display: none !important; /* Hide default buttons */
+}
+
+#qr-reader__dashboard_section_fsr {
+  display: none !important; /* Hide file upload */
+}
+
+#qr-reader__scan_region {
+  border: none !important;
+}
+
+/* Smooth animations */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+/* Active button press effect */
+.active\:scale-95:active {
+  transform: scale(0.95);
+}
