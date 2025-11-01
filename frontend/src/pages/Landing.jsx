@@ -1,43 +1,83 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { QrCode, Hash, Users, ChefHat, Shield, Utensils, X, ArrowLeft } from 'lucide-react';
+import { QrCode, Hash, Users, ChefHat, Shield, Utensils, ArrowLeft, Camera } from 'lucide-react';
 import { tablesAPI } from '../services/api';
 import toast from 'react-hot-toast';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 
 function Landing() {
   const [tableNumber, setTableNumber] = useState('');
   const [showInput, setShowInput] = useState(false);
   const [showScanner, setShowScanner] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const navigate = useNavigate();
+  const html5QrCodeRef = useRef(null);
 
-  // Initialize QR Scanner
+  // Initialize and start camera when scanner opens
   useEffect(() => {
-    if (showScanner) {
-      const scanner = new Html5QrcodeScanner(
-        "qr-reader",
-        { 
-          fps: 10,
-          qrbox: { width: 250, height: 250 },
-          aspectRatio: 1.0,
-          showTorchButtonIfSupported: true,
-        },
-        false
+    if (showScanner && !scanning) {
+      startScanner();
+    }
+
+    return () => {
+      stopScanner();
+    };
+  }, [showScanner]);
+
+  const startScanner = async () => {
+    try {
+      const html5QrCode = new Html5Qrcode("qr-reader");
+      html5QrCodeRef.current = html5QrCode;
+
+      const config = {
+        fps: 10,
+        qrbox: { width: 250, height: 250 },
+        aspectRatio: 1.0,
+      };
+
+      await html5QrCode.start(
+        { facingMode: "environment" }, // Use back camera on mobile
+        config,
+        onScanSuccess,
+        onScanError
       );
 
-      scanner.render(onScanSuccess, onScanError);
-
-      return () => {
-        scanner.clear().catch(error => {
-          console.error("Failed to clear scanner:", error);
-        });
-      };
+      setScanning(true);
+      console.log('✅ Camera started successfully');
+    } catch (error) {
+      console.error('❌ Camera start failed:', error);
+      
+      if (error.toString().includes('NotAllowedError')) {
+        toast.error('Camera permission denied. Please allow camera access.');
+      } else if (error.toString().includes('NotFoundError')) {
+        toast.error('No camera found on this device.');
+      } else {
+        toast.error('Failed to start camera. Please try again.');
+      }
+      
+      setShowScanner(false);
     }
-  }, [showScanner]);
+  };
+
+  const stopScanner = async () => {
+    if (html5QrCodeRef.current && scanning) {
+      try {
+        await html5QrCodeRef.current.stop();
+        html5QrCodeRef.current.clear();
+        setScanning(false);
+        console.log('✅ Camera stopped');
+      } catch (error) {
+        console.error('Error stopping scanner:', error);
+      }
+    }
+  };
 
   const onScanSuccess = async (decodedText) => {
     console.log('✅ QR Scanned:', decodedText);
+    
+    // Stop scanner immediately after successful scan
+    await stopScanner();
     
     let tableNum;
     
@@ -56,20 +96,23 @@ function Landing() {
       try {
         const response = await tablesAPI.verify(tableNum);
         if (response.data.success) {
+          toast.success(`Table ${tableNum} verified!`);
           // Navigate directly
           navigate(`/menu/${tableNum}`);
         }
       } catch (error) {
         toast.error('Invalid table number');
+        setShowScanner(false);
         setLoading(false);
       }
     } else {
-      toast.error('Invalid QR code');
+      toast.error('Invalid QR code. Please scan a table QR code.');
+      setShowScanner(false);
     }
   };
 
   const onScanError = (errorMessage) => {
-    // Silently ignore scan errors (camera is searching)
+    // Silently ignore scan errors (camera is searching for QR code)
   };
 
   const handleTableSubmit = async (e) => {
@@ -98,7 +141,8 @@ function Landing() {
     setShowInput(false);
   };
 
-  const handleCloseScanner = () => {
+  const handleCloseScanner = async () => {
+    await stopScanner();
     setShowScanner(false);
   };
 
@@ -111,22 +155,37 @@ function Landing() {
           <button
             onClick={handleCloseScanner}
             className="flex items-center gap-2 text-gray-700 hover:text-red-600 transition-colors"
+            disabled={loading}
           >
             <ArrowLeft className="w-5 h-5" />
             <span className="font-medium">Back</span>
           </button>
           <h3 className="text-lg font-bold text-gray-900">Scan QR Code</h3>
-          <div className="w-16"></div> {/* Spacer for centering */}
+          <div className="w-16"></div>
         </div>
 
-        {/* Scanner */}
+        {/* Scanner Container */}
         <div className="flex-1 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md">
-            <div 
-              id="qr-reader" 
-              className="w-full rounded-xl overflow-hidden shadow-2xl"
-            ></div>
+            {/* Camera Preview */}
+            <div className="relative">
+              <div 
+                id="qr-reader" 
+                className="w-full rounded-xl overflow-hidden shadow-2xl bg-gray-900"
+              ></div>
+              
+              {/* Scanning Indicator */}
+              {scanning && !loading && (
+                <div className="absolute top-4 left-4 right-4">
+                  <div className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg">
+                    <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                    <span>Camera Active - Point at QR Code</span>
+                  </div>
+                </div>
+              )}
+            </div>
             
+            {/* Loading State */}
             {loading && (
               <div className="mt-6 flex items-center justify-center gap-3 bg-white px-6 py-4 rounded-xl shadow-lg">
                 <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
@@ -134,11 +193,32 @@ function Landing() {
               </div>
             )}
 
-            {!loading && (
-              <div className="mt-6 p-4 bg-white bg-opacity-90 rounded-xl text-center">
-                <p className="text-sm text-gray-700 font-medium">
-                  📱 Point camera at table QR code
-                </p>
+            {/* Instructions */}
+            {!loading && scanning && (
+              <div className="mt-6 space-y-3">
+                <div className="p-4 bg-white bg-opacity-90 rounded-xl text-center">
+                  <Camera className="w-8 h-8 text-red-600 mx-auto mb-2" />
+                  <p className="text-sm text-gray-700 font-medium">
+                    Point camera at table QR code
+                  </p>
+                </div>
+                
+                <div className="bg-blue-500 bg-opacity-20 border border-blue-400 text-white px-4 py-3 rounded-xl text-xs">
+                  <p className="font-medium mb-1">💡 Tips:</p>
+                  <ul className="space-y-1 list-disc list-inside">
+                    <li>Hold your phone steady</li>
+                    <li>Make sure QR code is well-lit</li>
+                    <li>Keep QR code within the frame</li>
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Camera Starting */}
+            {!scanning && !loading && (
+              <div className="mt-6 flex items-center justify-center gap-3 bg-white px-6 py-4 rounded-xl shadow-lg">
+                <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                <span className="text-sm font-medium text-gray-700">Starting camera...</span>
               </div>
             )}
           </div>
@@ -148,10 +228,11 @@ function Landing() {
         <div className="bg-white px-4 py-4 border-t">
           <button
             onClick={() => {
-              setShowScanner(false);
+              handleCloseScanner();
               setShowInput(true);
             }}
             className="w-full text-sm text-gray-600 hover:text-red-600 transition-colors font-medium"
+            disabled={loading}
           >
             Can't scan? Enter table number manually →
           </button>
