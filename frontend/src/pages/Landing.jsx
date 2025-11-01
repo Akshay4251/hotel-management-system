@@ -13,6 +13,7 @@ function Landing() {
   const [scanning, setScanning] = useState(false);
   const navigate = useNavigate();
   const html5QrCodeRef = useRef(null);
+  const isProcessingRef = useRef(false); // ✅ Prevent multiple scans
 
   // Initialize and start camera when scanner opens
   useEffect(() => {
@@ -27,6 +28,9 @@ function Landing() {
 
   const startScanner = async () => {
     try {
+      // ✅ Reset processing flag when starting new scan
+      isProcessingRef.current = false;
+      
       const html5QrCode = new Html5Qrcode("qr-reader");
       html5QrCodeRef.current = html5QrCode;
 
@@ -37,7 +41,7 @@ function Landing() {
       };
 
       await html5QrCode.start(
-        { facingMode: "environment" }, // Use back camera on mobile
+        { facingMode: "environment" },
         config,
         onScanSuccess,
         onScanError
@@ -74,9 +78,16 @@ function Landing() {
   };
 
   const onScanSuccess = async (decodedText) => {
+    // ✅ CRITICAL: Prevent multiple processing
+    if (isProcessingRef.current) {
+      console.log('⏭️ Already processing scan, ignoring...');
+      return;
+    }
+
+    isProcessingRef.current = true;
     console.log('✅ QR Scanned:', decodedText);
     
-    // Stop scanner immediately after successful scan
+    // ✅ Stop scanner IMMEDIATELY to prevent multiple scans
     await stopScanner();
     
     let tableNum;
@@ -96,18 +107,27 @@ function Landing() {
       try {
         const response = await tablesAPI.verify(tableNum);
         if (response.data.success) {
-          toast.success(`Table ${tableNum} verified!`);
-          // Navigate directly
-          navigate(`/menu/${tableNum}`);
+          // ✅ Show toast only once
+          toast.success(`Table ${tableNum} verified!`, {
+            id: 'table-verified', // Prevents duplicate toasts
+            duration: 2000,
+          });
+          
+          // ✅ Small delay to show toast before navigation
+          setTimeout(() => {
+            navigate(`/menu/${tableNum}`);
+          }, 500);
         }
       } catch (error) {
         toast.error('Invalid table number');
         setShowScanner(false);
         setLoading(false);
+        isProcessingRef.current = false; // Reset on error
       }
     } else {
       toast.error('Invalid QR code. Please scan a table QR code.');
       setShowScanner(false);
+      isProcessingRef.current = false; // Reset on error
     }
   };
 
@@ -144,6 +164,7 @@ function Landing() {
   const handleCloseScanner = async () => {
     await stopScanner();
     setShowScanner(false);
+    isProcessingRef.current = false; // ✅ Reset flag
   };
 
   // Show scanner view
@@ -183,16 +204,20 @@ function Landing() {
                   </div>
                 </div>
               )}
+
+              {/* ✅ Success State */}
+              {loading && (
+                <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+                  <div className="bg-white px-6 py-4 rounded-xl shadow-lg">
+                    <div className="flex items-center gap-3">
+                      <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                      <span className="text-sm font-medium text-gray-700">Verifying...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
             
-            {/* Loading State */}
-            {loading && (
-              <div className="mt-6 flex items-center justify-center gap-3 bg-white px-6 py-4 rounded-xl shadow-lg">
-                <div className="w-5 h-5 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-sm font-medium text-gray-700">Verifying table...</span>
-              </div>
-            )}
-
             {/* Instructions */}
             {!loading && scanning && (
               <div className="mt-6 space-y-3">
@@ -227,8 +252,8 @@ function Landing() {
         {/* Manual Entry Footer */}
         <div className="bg-white px-4 py-4 border-t">
           <button
-            onClick={() => {
-              handleCloseScanner();
+            onClick={async () => {
+              await handleCloseScanner();
               setShowInput(true);
             }}
             className="w-full text-sm text-gray-600 hover:text-red-600 transition-colors font-medium"
