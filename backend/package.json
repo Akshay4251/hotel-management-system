@@ -1,6 +1,6 @@
 {
   "$schema": "http://json.schemastore.org/package",
-  "name": "hotel-management-backend",
+  "name": "backend",
   "version": "2.0.0",
   "description": "Hotel Management System Backend with Cloudinary Integration",
   "main": "server.js",
@@ -23,14 +23,15 @@
     "ordering",
     "cloudinary"
   ],
+  "author": "Your Name",
+  "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
-    "cloudinary": "^2.0.3",
+    "cloudinary": "^1.41.3",
     "compression": "^1.7.4",
     "cors": "^2.8.5",
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
-    "express-fileupload": "^1.5.0",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
@@ -45,5 +46,9 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "your-repo-url"
   }
 }
