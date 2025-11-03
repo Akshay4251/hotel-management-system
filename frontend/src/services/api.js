@@ -131,7 +131,10 @@ const menuAPI = {
   getCategories: () => api.get('/menu/categories'),
   create: (data) => api.post('/menu', data),
   update: (id, data) => api.put(`/menu/${id}`, data),
-  delete: (id) => api.delete(`/menu/${id}`),
+  
+  // ✅ HARD DELETE: force parameter permanently deletes from database
+  delete: (id, force = false) => api.delete(`/menu/${id}${force ? '?force=true' : ''}`),
+  
   updateAvailability: (id, isAvailable) => 
     api.patch(`/menu/${id}/availability`, { isAvailable }),
   uploadImage: (formData) => {

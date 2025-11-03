@@ -5,7 +5,7 @@ import {
   Package, Calendar, Smartphone, Wallet, X,
   Plus, Edit, Trash2, Save, Search, Filter,
   ChevronDown, QrCode, UtensilsCrossed, TableProperties,
-  Upload, Image as ImageIcon
+  Upload, Image as ImageIcon, AlertTriangle
 } from 'lucide-react';
 import { adminAPI, billsAPI, tablesAPI, menuAPI } from '../services/api';
 import toast from 'react-hot-toast';
@@ -65,7 +65,10 @@ function Admin() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const fileInputRef = useRef(null);
 
-  // ✅ QR Code cache buster - updates when tables change
+  // Delete Confirmation Modal State
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState(null);
+
+  // QR Code cache buster - updates when tables change
   const [qrCacheBuster, setQrCacheBuster] = useState(Date.now());
 
   // Real-time Updates
@@ -76,7 +79,7 @@ function Admin() {
     onTablesUpdate: () => {
       calculateStats(globalOrders, globalTables);
       setTables(globalTables || []);
-      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes when tables update
+      setQrCacheBuster(Date.now());
     },
     onNewOrder: (order) => {
       toast.success(`New order - Table ${order.table?.number}`, { duration: 2000 });
@@ -94,7 +97,7 @@ function Admin() {
     onRefresh: () => {
       refreshData();
       fetchDashboard();
-      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes
+      setQrCacheBuster(Date.now());
     }
   });
 
@@ -147,7 +150,7 @@ function Admin() {
     try {
       const res = await tablesAPI.getAll();
       setTables(res.data.data || []);
-      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes after loading tables
+      setQrCacheBuster(Date.now());
     } catch (error) {
       toast.error('Failed to load tables');
     }
@@ -168,14 +171,12 @@ function Admin() {
   };
 
   // ===================
-  // ✅ QR CODE HELPERS (FIXED)
+  // QR CODE HELPERS
   // ===================
 
-  // Generate customer-facing menu link for a table
   const tableCustomerLink = (tableNumber) => 
     `${PUBLIC_URL}/menu/${encodeURIComponent(tableNumber)}?src=qr`;
 
-  // Generate QR code image URL with cache busting and correct customer URL
   const qrImgUrl = (tableNumber, size = 220) => {
     const customerUrl = tableCustomerLink(tableNumber);
     return `${API_BASE_URL}/api/tables/${encodeURIComponent(tableNumber)}/qr?size=${size}&url=${encodeURIComponent(customerUrl)}&t=${qrCacheBuster}`;
@@ -215,7 +216,7 @@ function Admin() {
       setShowTableModal(false);
       loadTables();
       refreshData();
-      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes
+      setQrCacheBuster(Date.now());
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to save table');
     }
@@ -229,7 +230,7 @@ function Admin() {
       toast.success('Table deleted');
       loadTables();
       refreshData();
-      setQrCacheBuster(Date.now()); // ✅ Refresh QR codes
+      setQrCacheBuster(Date.now());
     } catch (error) {
       toast.error(error.response?.data?.message || 'Failed to delete table');
     }
@@ -243,13 +244,11 @@ function Admin() {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
       toast.error('Please select an image file');
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
       toast.error('Image size should be less than 5MB');
       return;
@@ -257,7 +256,6 @@ function Admin() {
 
     setSelectedImage(file);
 
-    // Create preview
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result);
@@ -391,15 +389,55 @@ function Admin() {
     }
   };
 
+  // ===================
+  // ✅ NEW: Delete Menu Item with Confirmation
+  // ===================
+
   const handleDeleteMenuItem = async (item) => {
+    // Step 1: Initial confirmation
     if (!window.confirm(`Delete "${item.name}"?`)) return;
 
     try {
-      await menuAPI.delete(item.id);
-      toast.success('Menu item deleted');
+      // Attempt normal delete first
+      await menuAPI.delete(item.id, false);
+      toast.success('Menu item deleted successfully');
       loadMenu();
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Failed to delete menu item');
+      // Check if it's a foreign key constraint error
+      if (error.response?.status === 409 && error.response?.data?.requiresConfirmation) {
+        const errorData = error.response.data;
+        
+        // Show custom modal for force delete confirmation
+        setDeleteConfirmModal({
+          item,
+          orderCount: errorData.orderCount
+        });
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to delete menu item');
+      }
+    }
+  };
+
+  const confirmForceDelete = async () => {
+    if (!deleteConfirmModal) return;
+
+    try {
+      toast.loading('Permanently deleting...', { id: 'force-delete' });
+      
+      await menuAPI.delete(deleteConfirmModal.item.id, true);
+      
+      toast.success(
+        `"${deleteConfirmModal.item.name}" permanently deleted`, 
+        { id: 'force-delete', duration: 3000 }
+      );
+      
+      setDeleteConfirmModal(null);
+      loadMenu();
+    } catch (error) {
+      toast.error(
+        error.response?.data?.message || 'Force delete failed', 
+        { id: 'force-delete' }
+      );
     }
   };
 
@@ -530,7 +568,7 @@ function Admin() {
               <button 
                 onClick={() => {
                   refreshData();
-                  setQrCacheBuster(Date.now()); // ✅ Also refresh QR codes
+                  setQrCacheBuster(Date.now());
                 }}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Refresh Data"
@@ -951,7 +989,7 @@ function Admin() {
           </div>
         )}
 
-        {/* ✅ QR Codes Tab - FIXED */}
+        {/* QR Codes Tab */}
         {activeTab === 'qr' && (
           <div className="bg-white rounded-xl p-6">
             <div className="flex items-center justify-between mb-6">
@@ -1270,6 +1308,60 @@ function Admin() {
                     <span>{editingMenuItem ? 'Update Item' : 'Create Item'}</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ✅ Force Delete Confirmation Modal */}
+      {deleteConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full">
+            <div className="p-6 border-b">
+              <div className="flex items-center gap-3 text-red-600 mb-2">
+                <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <h2 className="text-xl font-bold">⚠️ Permanent Deletion Warning</h2>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-gray-900 font-semibold">
+                "{deleteConfirmModal.item.name}" has been ordered{' '}
+                <span className="text-red-600">{deleteConfirmModal.orderCount} time(s)</span>
+              </p>
+
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <p className="font-semibold text-red-900 mb-2">This will PERMANENTLY:</p>
+                <ul className="space-y-1 text-sm text-red-800">
+                  <li>• Delete the menu item from database</li>
+                  <li>• Remove it from {deleteConfirmModal.orderCount} order record(s)</li>
+                  <li>• Delete the item's image from storage</li>
+                </ul>
+              </div>
+
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-sm text-yellow-900 font-semibold">
+                  ❗ THIS ACTION CANNOT BE UNDONE
+                </p>
+              </div>
+            </div>
+
+            <div className="p-6 border-t flex gap-3">
+              <button
+                onClick={() => setDeleteConfirmModal(null)}
+                className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg hover:bg-gray-50 font-medium transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmForceDelete}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 font-medium transition-colors"
+              >
+                <Trash2 className="w-5 h-5" />
+                Permanently Delete
               </button>
             </div>
           </div>
