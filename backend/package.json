@@ -23,8 +23,6 @@
     "ordering",
     "cloudinary"
   ],
-  "author": "Your Name",
-  "license": "MIT",
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cloudinary": "^1.41.3",
@@ -46,9 +44,5 @@
   },
   "devDependencies": {
     "nodemon": "^3.0.3"
-  },
-  "repository": {
-    "type": "git",
-    "url": "your-repo-url"
   }
 }
