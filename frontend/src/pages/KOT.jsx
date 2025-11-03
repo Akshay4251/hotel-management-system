@@ -384,11 +384,13 @@ function KOT() {
                         <h3 className="text-xl font-bold">Table {order.table?.number}</h3>
                         <p className="text-sm opacity-90">#{order.orderNumber}</p>
                       </div>
+                      {/* ✅ ONLY CHANGE: Solid white background for reprint button */}
                       <button
                         onClick={() => handleManualPrint(order)}
-                        className="p-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg"
+                        className="p-2 bg-white hover:bg-gray-100 rounded-lg shadow-md"
+                        title="Reprint KOT"
                       >
-                        <Printer className="w-5 h-5" />
+                        <Printer className="w-5 h-5 text-gray-900" />
                       </button>
                     </div>
                     <p className="text-xs mt-2 opacity-75 flex items-center gap-1">

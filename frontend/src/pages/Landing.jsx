@@ -13,9 +13,8 @@ function Landing() {
   const [scanning, setScanning] = useState(false);
   const navigate = useNavigate();
   const html5QrCodeRef = useRef(null);
-  const isProcessingRef = useRef(false); // ✅ Prevent multiple scans
+  const isProcessingRef = useRef(false);
 
-  // Initialize and start camera when scanner opens
   useEffect(() => {
     if (showScanner && !scanning) {
       startScanner();
@@ -28,7 +27,6 @@ function Landing() {
 
   const startScanner = async () => {
     try {
-      // ✅ Reset processing flag when starting new scan
       isProcessingRef.current = false;
       
       const html5QrCode = new Html5Qrcode("qr-reader");
@@ -78,7 +76,6 @@ function Landing() {
   };
 
   const onScanSuccess = async (decodedText) => {
-    // ✅ CRITICAL: Prevent multiple processing
     if (isProcessingRef.current) {
       console.log('⏭️ Already processing scan, ignoring...');
       return;
@@ -87,18 +84,15 @@ function Landing() {
     isProcessingRef.current = true;
     console.log('✅ QR Scanned:', decodedText);
     
-    // ✅ Stop scanner IMMEDIATELY to prevent multiple scans
     await stopScanner();
     
     let tableNum;
     
     try {
-      // Try parsing as URL first
       const url = new URL(decodedText);
       const pathParts = url.pathname.split('/');
       tableNum = pathParts[pathParts.length - 1];
     } catch {
-      // Not a URL, treat as direct table number
       tableNum = decodedText.trim();
     }
 
@@ -107,13 +101,11 @@ function Landing() {
       try {
         const response = await tablesAPI.verify(tableNum);
         if (response.data.success) {
-          // ✅ Show toast only once
           toast.success(`Table ${tableNum} verified!`, {
-            id: 'table-verified', // Prevents duplicate toasts
+            id: 'table-verified',
             duration: 2000,
           });
           
-          // ✅ Small delay to show toast before navigation
           setTimeout(() => {
             navigate(`/menu/${tableNum}`);
           }, 500);
@@ -122,17 +114,17 @@ function Landing() {
         toast.error('Invalid table number');
         setShowScanner(false);
         setLoading(false);
-        isProcessingRef.current = false; // Reset on error
+        isProcessingRef.current = false;
       }
     } else {
       toast.error('Invalid QR code. Please scan a table QR code.');
       setShowScanner(false);
-      isProcessingRef.current = false; // Reset on error
+      isProcessingRef.current = false;
     }
   };
 
   const onScanError = (errorMessage) => {
-    // Silently ignore scan errors (camera is searching for QR code)
+    // Silently ignore scan errors
   };
 
   const handleTableSubmit = async (e) => {
@@ -164,14 +156,12 @@ function Landing() {
   const handleCloseScanner = async () => {
     await stopScanner();
     setShowScanner(false);
-    isProcessingRef.current = false; // ✅ Reset flag
+    isProcessingRef.current = false;
   };
 
-  // Show scanner view
   if (showScanner) {
     return (
       <div className="min-h-screen bg-black flex flex-col">
-        {/* Header */}
         <div className="bg-white px-4 py-3 flex items-center justify-between shadow-lg">
           <button
             onClick={handleCloseScanner}
@@ -185,17 +175,14 @@ function Landing() {
           <div className="w-16"></div>
         </div>
 
-        {/* Scanner Container */}
         <div className="flex-1 flex flex-col items-center justify-center p-4">
           <div className="w-full max-w-md">
-            {/* Camera Preview */}
             <div className="relative">
               <div 
                 id="qr-reader" 
                 className="w-full rounded-xl overflow-hidden shadow-2xl bg-gray-900"
               ></div>
               
-              {/* Scanning Indicator */}
               {scanning && !loading && (
                 <div className="absolute top-4 left-4 right-4">
                   <div className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 shadow-lg">
@@ -205,7 +192,6 @@ function Landing() {
                 </div>
               )}
 
-              {/* ✅ Success State */}
               {loading && (
                 <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
                   <div className="bg-white px-6 py-4 rounded-xl shadow-lg">
@@ -218,7 +204,6 @@ function Landing() {
               )}
             </div>
             
-            {/* Instructions */}
             {!loading && scanning && (
               <div className="mt-6 space-y-3">
                 <div className="p-4 bg-white bg-opacity-90 rounded-xl text-center">
@@ -239,7 +224,6 @@ function Landing() {
               </div>
             )}
 
-            {/* Camera Starting */}
             {!scanning && !loading && (
               <div className="mt-6 flex items-center justify-center gap-3 bg-white px-6 py-4 rounded-xl shadow-lg">
                 <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
@@ -249,7 +233,6 @@ function Landing() {
           </div>
         </div>
 
-        {/* Manual Entry Footer */}
         <div className="bg-white px-4 py-4 border-t">
           <button
             onClick={async () => {
@@ -266,12 +249,10 @@ function Landing() {
     );
   }
 
-  // Main landing page
   return (
     <div className="min-h-screen bg-gradient-to-br from-red-600 to-orange-600">
       <div className="min-h-screen flex flex-col items-center justify-center px-4 py-12">
         <div className="w-full max-w-md">
-          {/* Logo */}
           <div className="text-center mb-8">
             <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-full mb-4 shadow-lg">
               <Utensils className="w-10 h-10 text-red-600" />
@@ -284,13 +265,11 @@ function Landing() {
             </p>
           </div>
 
-          {/* Main Card */}
           <div className="bg-white rounded-2xl shadow-2xl p-6 sm:p-8 mb-6">
             <h2 className="text-2xl font-bold text-gray-900 mb-6 text-center">
               Get Started
             </h2>
 
-            {/* Options */}
             <div className="grid grid-cols-2 gap-4 mb-6">
               <button 
                 className="p-6 bg-gray-50 rounded-xl hover:bg-gray-100 transition-all border-2 border-transparent hover:border-red-200 active:scale-95"
@@ -304,6 +283,7 @@ function Landing() {
                 </div>
               </button>
 
+              {/* ✅ ONLY CHANGE: Fixed # icon visibility */}
               <button 
                 onClick={() => {
                   setShowInput(!showInput);
@@ -316,17 +296,15 @@ function Landing() {
                 }`}
               >
                 <div className="flex flex-col items-center space-y-3">
-                  <div className={`p-3 rounded-full shadow-md ${
-                    showInput ? 'bg-white bg-opacity-20' : 'bg-white'
-                  }`}>
-                    <Hash className={`w-8 h-8 ${showInput ? 'text-white' : 'text-red-600'}`} />
+                  {/* ✅ CHANGED: Always white background with red icon for visibility */}
+                  <div className="p-3 bg-white rounded-full shadow-md">
+                    <Hash className="w-8 h-8 text-red-600" />
                   </div>
                   <span className="text-sm font-semibold">Table No</span>
                 </div>
               </button>
             </div>
 
-            {/* Table Input */}
             {showInput && (
               <form onSubmit={handleTableSubmit} className="space-y-4 animate-fade-in">
                 <input
@@ -350,7 +328,6 @@ function Landing() {
               </form>
             )}
 
-            {/* Staff Access */}
             <div className="border-t pt-6 mt-6">
               <p className="text-center text-sm text-gray-500 mb-4 font-medium">Staff Access</p>
               <div className="grid grid-cols-3 gap-3">
@@ -379,7 +356,6 @@ function Landing() {
             </div>
           </div>
 
-          {/* Footer */}
           <p className="text-center text-white text-sm opacity-75">
             © 2024 Restaurant. All rights reserved.
           </p>
