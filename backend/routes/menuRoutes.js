@@ -128,10 +128,13 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
 
     const imageUrl = getImageUrl(req.file);
     
-    console.log('✅ IMAGE UPLOADED SUCCESSFULLY');
-    console.log('📁 Storage:', useCloudinary ? 'Cloudinary' : 'Local');
+    console.log('╔═══════════════════════════════════╗');
+    console.log('║  ✅ IMAGE UPLOADED               ║');
+    console.log('╚═══════════════════════════════════╝');
+    console.log('📁 Storage:', useCloudinary ? 'Cloudinary ☁️' : 'Local 💾');
     console.log('🌐 URL:', imageUrl);
     console.log('📦 Size:', (req.file.size / 1024).toFixed(2), 'KB');
+    console.log('');
     
     res.json({
       success: true,
@@ -141,10 +144,25 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
       size: req.file.size
     });
   } catch (error) {
-    console.error('❌ Image upload error:', error);
+    console.error('╔═══════════════════════════════════╗');
+    console.error('║  ❌ IMAGE UPLOAD ERROR           ║');
+    console.error('╚═══════════════════════════════════╝');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+    console.error('Cloudinary Config:', {
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME ? 'SET' : 'MISSING',
+      apiKey: process.env.CLOUDINARY_API_KEY ? 'SET' : 'MISSING',
+      apiSecret: process.env.CLOUDINARY_API_SECRET ? 'SET' : 'MISSING'
+    });
+    console.error('');
     
+    // Try to clean up uploaded file
     if (req.file) {
-      await deleteFile(getImageUrl(req.file));
+      try {
+        await deleteFile(getImageUrl(req.file));
+      } catch (cleanupError) {
+        console.error('Failed to cleanup file:', cleanupError.message);
+      }
     }
     
     res.status(500).json({
@@ -205,7 +223,11 @@ router.post('/', async (req, res) => {
     console.error('❌ Error creating menu item:', error);
     
     if (req.body.image) {
-      await deleteFile(req.body.image);
+      try {
+        await deleteFile(req.body.image);
+      } catch (cleanupError) {
+        console.error('Failed to cleanup image:', cleanupError.message);
+      }
     }
     
     res.status(500).json({ 
@@ -252,9 +274,16 @@ router.put('/:id', async (req, res) => {
 
     await menuItem.update(updatedData);
 
-    // Delete old image if replaced
+    // Delete old image if replaced (non-blocking)
     if (oldImage && req.body.image && oldImage !== req.body.image) {
-      await deleteFile(oldImage);
+      console.log('🗑️  Deleting old image...');
+      try {
+        await deleteFile(oldImage);
+        console.log('✅ Old image deleted');
+      } catch (deleteError) {
+        console.error('⚠️  Failed to delete old image (non-critical):', deleteError.message);
+        // Don't fail the update if image deletion fails
+      }
     }
     
     console.log('✅ Menu item updated successfully');
@@ -325,7 +354,7 @@ router.patch('/:id/availability', async (req, res) => {
 });
 
 // ============================================
-// DELETE ROUTES
+// DELETE ROUTES (SAFE VERSION)
 // ============================================
 
 // DELETE /api/menu/:id - Delete menu item
@@ -343,30 +372,89 @@ router.delete('/:id', async (req, res) => {
     const itemName = menuItem.name;
     const itemImage = menuItem.image;
 
-    await menuItem.destroy();
+    console.log('╔═══════════════════════════════════╗');
+    console.log('║  🗑️  DELETING MENU ITEM          ║');
+    console.log('╚═══════════════════════════════════╝');
+    console.log('ID:', req.params.id);
+    console.log('Name:', itemName);
+    console.log('Image:', itemImage || 'NO IMAGE');
 
-    // Delete associated image
+    // CRITICAL: Delete from database FIRST (this is the main operation)
+    try {
+      await menuItem.destroy();
+      console.log('✅ Deleted from database');
+    } catch (dbError) {
+      console.error('❌ Database deletion failed:', dbError.message);
+      throw new Error('Failed to delete from database: ' + dbError.message);
+    }
+
+    // OPTIONAL: Try to delete associated image (failure is non-critical)
     if (itemImage) {
-      await deleteFile(itemImage);
+      console.log('Attempting to delete image:', itemImage);
+      
+      try {
+        // Check if it's a local path or Cloudinary URL
+        const isLocalPath = itemImage.startsWith('/uploads/') || itemImage.startsWith('uploads/');
+        const isCloudinaryUrl = itemImage.includes('cloudinary.com');
+        
+        if (isLocalPath && useCloudinary) {
+          console.log('⚠️  Old local image path detected (before Cloudinary migration)');
+          console.log('   Skipping deletion - file no longer exists on server');
+        } else if (isCloudinaryUrl && !useCloudinary) {
+          console.log('⚠️  Cloudinary URL but server in local mode');
+          console.log('   Skipping deletion');
+        } else {
+          // Try to delete the image
+          const deleted = await deleteFile(itemImage);
+          if (deleted) {
+            console.log('✅ Image deleted successfully');
+          } else {
+            console.log('⚠️  Image not found or already deleted');
+          }
+        }
+      } catch (imageError) {
+        // Image deletion failed - log but don't fail the whole operation
+        console.error('⚠️  Image deletion failed (non-critical):', imageError.message);
+        console.error('   Menu item was deleted from database successfully');
+      }
+    } else {
+      console.log('ℹ️  No image to delete');
     }
     
-    console.log('✅ Menu item deleted:', itemName);
+    console.log('✅ Menu item deletion completed successfully');
+    console.log('╚═══════════════════════════════════╝\n');
     
+    // Emit socket event
     const io = req.app.get('io');
     if (io) {
-      io.emit('menu-updated', { action: 'deleted', id: req.params.id });
+      try {
+        io.emit('menu-updated', { 
+          action: 'deleted', 
+          id: req.params.id 
+        });
+      } catch (socketError) {
+        console.error('⚠️  Socket emit failed:', socketError.message);
+      }
     }
     
+    // Send success response
     res.json({ 
       success: true, 
       message: 'Menu item deleted successfully' 
     });
+
   } catch (error) {
-    console.error('❌ Error deleting menu item:', error);
+    console.error('╔═══════════════════════════════════╗');
+    console.error('║  ❌ DELETE ERROR                 ║');
+    console.error('╚═══════════════════════════════════╝');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+    console.error('╚═══════════════════════════════════╝\n');
+    
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to delete menu item',
-      error: error.message 
+      message: error.message || 'Failed to delete menu item',
+      error: error.message
     });
   }
 });
@@ -382,6 +470,8 @@ router.post('/delete-image', async (req, res) => {
         message: 'Image URL is required'
       });
     }
+
+    console.log('🗑️  Deleting orphaned image:', imageUrl);
 
     const deleted = await deleteFile(imageUrl);
 
@@ -406,35 +496,4 @@ router.post('/delete-image', async (req, res) => {
   }
 });
 
-
-// ADD THIS TEMPORARILY to backend/routes/menuRoutes.js
-
-// Cleanup old menu items with local image paths
-router.post('/cleanup-old-images', async (req, res) => {
-  try {
-    const items = await MenuItem.findAll();
-    
-    let updated = 0;
-    
-    for (const item of items) {
-      // If image is a local path, set it to null
-      if (item.image && item.image.startsWith('/uploads/')) {
-        console.log(`Cleaning up ${item.name}: ${item.image} -> null`);
-        await item.update({ image: null });
-        updated++;
-      }
-    }
-    
-    res.json({
-      success: true,
-      message: `Cleaned up ${updated} menu items with old local image paths`,
-      updated
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-});
 module.exports = router;
