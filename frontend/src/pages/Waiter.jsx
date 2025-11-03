@@ -94,23 +94,46 @@ function Waiter() {
     }
   };
 
-  const placeOrder = async () => {
-    if (!selectedTable || cart.length === 0) return;
+const placeOrder = async () => {
+  if (!selectedTable || cart.length === 0) {
+    toast.error('Please add items to cart');
+    return;
+  }
 
-    try {
-      await ordersAPI.create({
-        tableNumber: selectedTable.number,
-        items: cart.map(item => ({ menuItemId: item.id, quantity: item.quantity })),
-        type: 'dine-in',
-      });
-      toast.success('Order placed successfully!');
-      setShowOrderModal(false);
-      setCart([]);
-      fetchData();
-    } catch (error) {
-      toast.error('Failed to place order');
-    }
-  };
+  try {
+    // ✅ Format order data correctly
+    const orderData = {
+      tableNumber: selectedTable.number,
+      items: cart.map(item => ({
+        menuItemId: item.id, // ✅ Use item.id directly
+        quantity: item.quantity,
+        notes: null
+      })),
+      type: 'dine-in',
+      waiterId: null,
+      notes: null
+    };
+
+    console.log('📤 Placing order for table', selectedTable.number);
+    console.log('Items:', orderData.items);
+
+    // Call API
+    await ordersAPI.create(orderData);
+    
+    // Success
+    toast.success('Order placed successfully!');
+    setShowOrderModal(false);
+    setCart([]);
+    fetchData();
+    
+  } catch (error) {
+    console.error('❌ Order placement failed:', error);
+    
+    // Show specific error message from backend
+    const errorMessage = error.response?.data?.message || 'Failed to place order';
+    toast.error(errorMessage);
+  }
+};
 
   const categories = ['All', ...new Set(menuItems.map(item => item.category))];
   const filteredMenu = activeCategory === 'All' 
