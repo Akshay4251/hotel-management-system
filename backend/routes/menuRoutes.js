@@ -406,4 +406,35 @@ router.post('/delete-image', async (req, res) => {
   }
 });
 
+
+// ADD THIS TEMPORARILY to backend/routes/menuRoutes.js
+
+// Cleanup old menu items with local image paths
+router.post('/cleanup-old-images', async (req, res) => {
+  try {
+    const items = await MenuItem.findAll();
+    
+    let updated = 0;
+    
+    for (const item of items) {
+      // If image is a local path, set it to null
+      if (item.image && item.image.startsWith('/uploads/')) {
+        console.log(`Cleaning up ${item.name}: ${item.image} -> null`);
+        await item.update({ image: null });
+        updated++;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Cleaned up ${updated} menu items with old local image paths`,
+      updated
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+});
 module.exports = router;
