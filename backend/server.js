@@ -23,130 +23,209 @@ const adminRoutes = require('./routes/adminRoutes');
 const app = express();
 const server = http.createServer(app);
 
-// ===== ENVIRONMENT =====
+// ============================================
+// ENVIRONMENT CONFIGURATION
+// ============================================
 const isProduction = process.env.NODE_ENV === 'production';
 const isDevelopment = !isProduction;
+const PORT = process.env.PORT || 5000;
 
-console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
+console.log('╔════════════════════════════════════════════╗');
+console.log('║  🏨 Hotel Management System - Starting... ║');
+console.log('╚════════════════════════════════════════════╝');
+console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🔌 Port: ${PORT}`);
 
-// ===== SOCKET.IO =====
+// ============================================
+// SOCKET.IO CONFIGURATION
+// ============================================
 const io = socketIo(server, {
   cors: {
-    origin: isDevelopment ? ['http://localhost:5173', 'http://localhost:3000'] : true,
+    origin: isDevelopment 
+      ? ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174']
+      : true,
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
   },
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// ===== BASIC MIDDLEWARE (BEFORE STATIC FILES) =====
-app.use(compression());
-app.use(express.json({ limit: '10mb' })); // Increased from default 100kb
-app.use(express.urlencoded({ limit: '10mb', extended: true }));
-app.use(morgan(isDevelopment ? 'dev' : 'combined'));
-
-// ===== CORS (Development only) =====
-if (isDevelopment) {
-  app.use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
-    credentials: true
-  }));
-}
-
-// ===== HELMET (Relaxed for static files) =====
-app.use(helmet({
-  contentSecurityPolicy: false,
-  crossOriginEmbedderPolicy: false,
-  crossOriginResourcePolicy: false
-}));
-
-// Make io accessible
 app.set('io', io);
 
 // ============================================
-// ✅ SERVE UPLOADS DIRECTORY
+// BASIC MIDDLEWARE (ORDER MATTERS!)
 // ============================================
-const uploadsPath = path.join(__dirname, 'public/uploads');
-console.log('📁 Uploads directory path:', uploadsPath);
 
-// Create uploads directory if it doesn't exist
-if (!fs.existsSync(uploadsPath)) {
-  fs.mkdirSync(uploadsPath, { recursive: true });
-  console.log('✅ Created uploads directory');
+// 1. Compression
+app.use(compression());
+
+// 2. Body parsers (BEFORE routes)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+
+// 3. Logging
+if (isDevelopment) {
+  app.use(morgan('dev'));
 } else {
-  console.log('✅ Uploads directory exists');
-  
-  // Log uploaded files
-  const menuPath = path.join(uploadsPath, 'menu');
-  if (fs.existsSync(menuPath)) {
-    const files = fs.readdirSync(menuPath);
-    console.log(`📸 Found ${files.length} images in menu folder`);
-    if (files.length > 0 && files.length <= 5) {
-      console.log('   Sample files:', files);
-    }
+  app.use(morgan('combined'));
+}
+
+// 4. CORS (Development)
+if (isDevelopment) {
+  app.use(cors({
+    origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH']
+  }));
+}
+
+// 5. Security Headers (Relaxed for static files)
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+}));
+
+// ============================================
+// STATIC FILE SERVING - UPLOADS
+// ============================================
+const publicPath = path.join(__dirname, 'public');
+const uploadsPath = path.join(__dirname, 'public/uploads');
+const menuUploadsPath = path.join(__dirname, 'public/uploads/menu');
+
+// Ensure directories exist
+[publicPath, uploadsPath, menuUploadsPath].forEach(dir => {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`✅ Created directory: ${dir}`);
+  }
+});
+
+console.log('📁 Uploads path:', uploadsPath);
+
+// Count existing uploads
+if (fs.existsSync(menuUploadsPath)) {
+  const files = fs.readdirSync(menuUploadsPath);
+  console.log(`📸 Found ${files.length} images in menu uploads`);
+  if (files.length > 0 && files.length <= 3) {
+    console.log('   Sample:', files.slice(0, 3).join(', '));
   }
 }
 
-// ✅ Serve uploads folder statically
-app.use('/uploads', express.static(uploadsPath, {
-  maxAge: '1d',
+// Serve public folder
+app.use(express.static(publicPath, {
+  maxAge: isDevelopment ? 0 : '1d',
   etag: true,
   lastModified: true
 }));
 
-console.log('✅ Static file serving enabled for /uploads');
+// Explicit uploads route with CORS headers
+app.use('/uploads', (req, res, next) => {
+  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Cache-Control', isDevelopment ? 'no-cache' : 'public, max-age=86400');
+  next();
+}, express.static(uploadsPath, {
+  maxAge: isDevelopment ? 0 : '1d',
+  etag: true,
+  lastModified: true,
+  fallthrough: true
+}));
 
-// ===== SERVE STATIC FILES (PRODUCTION ONLY) =====
+console.log('✅ Static file serving configured for /uploads');
+
+// ============================================
+// PRODUCTION FRONTEND SERVING
+// ============================================
 if (isProduction) {
   const distPath = path.join(__dirname, 'dist');
   
-  console.log('📁 Static files path:', distPath);
+  console.log('📁 Checking dist folder:', distPath);
   
   if (fs.existsSync(distPath)) {
-    console.log('✅ dist folder exists');
-    
     const files = fs.readdirSync(distPath);
-    console.log('📄 dist contents:', files);
+    console.log('✅ dist folder exists');
+    console.log(`   Contains: ${files.join(', ')}`);
     
     const assetsPath = path.join(distPath, 'assets');
     if (fs.existsSync(assetsPath)) {
       const assetFiles = fs.readdirSync(assetsPath);
-      console.log('📦 assets folder contains', assetFiles.length, 'files');
-    } else {
-      console.warn('⚠️  No assets folder found');
+      console.log(`   📦 assets: ${assetFiles.length} files`);
     }
+    
+    // Serve static files from dist
+    app.use(express.static(distPath, {
+      index: false,
+      dotfiles: 'ignore',
+      etag: true,
+      lastModified: true,
+      maxAge: '1d'
+    }));
+    
+    console.log('✅ Serving frontend from /dist');
   } else {
-    console.error('❌ dist folder NOT found at:', distPath);
+    console.warn('⚠️  dist folder NOT found - frontend will not be served');
   }
-  
-  app.use(express.static(distPath, {
-    index: false,
-    dotfiles: 'ignore',
-    etag: true,
-    lastModified: true,
-    maxAge: '1d',
-    redirect: false
-  }));
-  
-  console.log('✅ Static file middleware enabled for dist');
 }
 
-// ===== HEALTH CHECK =====
+// ============================================
+// HEALTH CHECK & DEBUG ROUTES
+// ============================================
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
-    uptime: process.uptime()
+    uptime: Math.floor(process.uptime()),
+    memory: {
+      used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
+      total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024) + 'MB'
+    }
   });
 });
 
-// ===== API ROUTES =====
+// Debug route for checking uploads
+app.get('/api/debug/uploads', (req, res) => {
+  try {
+    const menuPath = path.join(__dirname, 'public/uploads/menu');
+    const files = fs.existsSync(menuPath) 
+      ? fs.readdirSync(menuPath)
+      : [];
+    
+    res.json({
+      uploadsPath: menuPath,
+      exists: fs.existsSync(menuPath),
+      fileCount: files.length,
+      files: files.slice(0, 10),
+      sampleUrls: files.slice(0, 3).map(f => `/uploads/menu/${f}`)
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// ============================================
+// API ROUTES
+// ============================================
 app.get('/api', (req, res) => {
   res.json({
-    message: '🏨 Hotel Management API',
-    version: '1.0.0',
-    status: 'running'
+    message: '🏨 Hotel Management System API',
+    version: '2.0.0',
+    status: 'running',
+    environment: process.env.NODE_ENV || 'development',
+    endpoints: {
+      auth: '/api/auth',
+      tables: '/api/tables',
+      menu: '/api/menu',
+      orders: '/api/orders',
+      bills: '/api/bills',
+      admin: '/api/admin'
+    }
   });
 });
 
@@ -157,12 +236,18 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/bills', billRoutes);
 app.use('/api/admin', adminRoutes);
 
-// ===== SPA FALLBACK (MUST BE LAST) =====
+// ============================================
+// SPA FALLBACK (PRODUCTION ONLY - MUST BE LAST)
+// ============================================
 if (isProduction) {
   app.get('*', (req, res) => {
     // Don't serve index.html for API routes or uploads
     if (req.path.startsWith('/api/') || req.path.startsWith('/uploads/')) {
-      return res.status(404).json({ error: 'Not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Not found',
+        path: req.path
+      });
     }
     
     const indexPath = path.join(__dirname, 'dist', 'index.html');
@@ -170,61 +255,91 @@ if (isProduction) {
     if (fs.existsSync(indexPath)) {
       res.sendFile(indexPath);
     } else {
-      res.status(500).send('Application not built correctly. index.html not found.');
+      res.status(500).send(`
+        <h1>Application Error</h1>
+        <p>index.html not found. Please rebuild the frontend:</p>
+        <pre>cd frontend && npm run build</pre>
+      `);
     }
   });
 }
 
-// ===== 404 HANDLER (Development) =====
+// ============================================
+// 404 HANDLER (DEVELOPMENT)
+// ============================================
 if (isDevelopment) {
   app.use((req, res) => {
     res.status(404).json({
       success: false,
       message: 'Route not found',
-      path: req.path
+      path: req.path,
+      method: req.method
     });
   });
 }
 
-// ===== ERROR HANDLER (MUST BE LAST) =====
+// ============================================
+// ERROR HANDLER (MUST BE LAST)
+// ============================================
 app.use((err, req, res, next) => {
   console.error('╔════════════════════════════════════╗');
-  console.error('║  ❌ ERROR                         ║');
+  console.error('║  ❌ ERROR OCCURRED                ║');
   console.error('╚════════════════════════════════════╝');
   console.error('Path:', req.path);
   console.error('Method:', req.method);
   console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
-  
-  if (req.path.startsWith('/api/')) {
-    return res.status(err.status || 500).json({
-      success: false,
-      message: err.message || 'Internal Server Error',
-      ...(isDevelopment && { stack: err.stack })
-    });
+  if (isDevelopment) {
+    console.error('Stack:', err.stack);
   }
+  console.error('');
   
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error'
+  const statusCode = err.status || err.statusCode || 500;
+  
+  res.status(statusCode).json({
+    success: false,
+    message: err.message || 'Internal Server Error',
+    ...(isDevelopment && { 
+      stack: err.stack,
+      details: err
+    })
   });
 });
-
-// ===== SOCKET.IO =====
-socketHandler(io);
-
-// ===== GRACEFUL SHUTDOWN =====
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received: closing server');
-  server.close(() => {
-    console.log('Server closed');
-  });
-});
-
-// ===== START SERVER =====
-const PORT = process.env.PORT || 5000;
 
 // ============================================
-// ✅ AUTO-MIGRATION ON STARTUP
+// SOCKET.IO INITIALIZATION
+// ============================================
+socketHandler(io);
+
+// ============================================
+// GRACEFUL SHUTDOWN
+// ============================================
+const gracefulShutdown = (signal) => {
+  console.log(`\n${signal} received: closing server gracefully...`);
+  
+  server.close(() => {
+    console.log('✅ HTTP server closed');
+    
+    sequelize.close().then(() => {
+      console.log('✅ Database connection closed');
+      process.exit(0);
+    }).catch(err => {
+      console.error('❌ Error closing database:', err);
+      process.exit(1);
+    });
+  });
+  
+  // Force close after 10 seconds
+  setTimeout(() => {
+    console.error('⚠️  Forcing shutdown...');
+    process.exit(1);
+  }, 10000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// ============================================
+// DATABASE MIGRATIONS
 // ============================================
 const runMigrations = async () => {
   try {
@@ -232,13 +347,10 @@ const runMigrations = async () => {
     console.log('║  🔧 RUNNING DATABASE MIGRATIONS           ║');
     console.log('╚════════════════════════════════════════════╝\n');
     
-    // ============================================
-    // Migration 1: Sync Bills table structure
-    // ============================================
+    // Migration 1: Bills table structure
     try {
-      console.log('🔍 Checking Bills table structure...');
+      console.log('🔍 Checking Bills table...');
       
-      // Get current columns
       const [currentColumns] = await sequelize.query(`
         SELECT column_name, data_type, is_nullable
         FROM information_schema.columns
@@ -247,12 +359,11 @@ const runMigrations = async () => {
       `);
       
       const columnNames = currentColumns.map(col => col.column_name);
-      console.log('   Current columns:', columnNames.join(', '));
+      console.log(`   Current columns (${columnNames.length}):`, columnNames.join(', '));
       
-      // Define required columns (using actual DB column names)
       const requiredColumns = {
         tableId: { type: 'UUID', nullable: true },
-        taxAmount: { type: 'DECIMAL(10,2)', nullable: false, default: 0 }, // ✅ Changed from 'tax'
+        taxAmount: { type: 'DECIMAL(10,2)', nullable: false, default: 0 },
         subtotal: { type: 'DECIMAL(10,2)', nullable: false, default: 0 },
         discount: { type: 'DECIMAL(10,2)', nullable: true, default: 0 },
         totalAmount: { type: 'DECIMAL(10,2)', nullable: false },
@@ -264,7 +375,6 @@ const runMigrations = async () => {
       
       let migrationsRun = 0;
       
-      // Add missing columns
       for (const [columnName, config] of Object.entries(requiredColumns)) {
         if (!columnNames.includes(columnName)) {
           console.log(`   📝 Adding column: ${columnName}`);
@@ -272,13 +382,9 @@ const runMigrations = async () => {
           let sql = `ALTER TABLE "Bills" ADD COLUMN "${columnName}" ${config.type}`;
           
           if (config.default !== undefined) {
-            if (typeof config.default === 'string') {
-              sql += ` DEFAULT '${config.default}'`;
-            } else if (typeof config.default === 'boolean') {
-              sql += ` DEFAULT ${config.default}`;
-            } else {
-              sql += ` DEFAULT ${config.default}`;
-            }
+            sql += typeof config.default === 'string' 
+              ? ` DEFAULT '${config.default}'`
+              : ` DEFAULT ${config.default}`;
           }
           
           if (!config.nullable) {
@@ -291,9 +397,9 @@ const runMigrations = async () => {
         }
       }
       
-      // Update existing bills with data from orders
-      if (migrationsRun > 0 || columnNames.includes('taxAmount')) {
-        console.log('   📝 Updating existing bills from orders...');
+      // Update existing bills
+      if (migrationsRun > 0) {
+        console.log('   📝 Updating existing bills...');
         
         await sequelize.query(`
           UPDATE "Bills" b
@@ -305,68 +411,29 @@ const runMigrations = async () => {
             "totalAmount" = COALESCE(b."totalAmount", o."total", 0)
           FROM "Orders" o
           WHERE b."orderId" = o."id"
-            AND (b."tableId" IS NULL OR b."taxAmount" IS NULL OR b."subtotal" IS NULL OR b."totalAmount" = 0);
+            AND (b."tableId" IS NULL OR b."subtotal" = 0);
         `);
         
         console.log('   ✅ Existing bills updated');
       }
       
-      // Add foreign key constraint for tableId if it doesn't exist
-      const [constraints] = await sequelize.query(`
-        SELECT constraint_name
-        FROM information_schema.table_constraints
-        WHERE table_name = 'Bills'
-          AND constraint_type = 'FOREIGN KEY'
-          AND constraint_name = 'Bills_tableId_fkey';
-      `);
-      
-      if (constraints.length === 0 && columnNames.includes('tableId')) {
-        console.log('   📝 Adding foreign key constraint...');
-        
-        try {
-          await sequelize.query(`
-            ALTER TABLE "Bills"
-            ADD CONSTRAINT "Bills_tableId_fkey"
-            FOREIGN KEY ("tableId")
-            REFERENCES "Tables"("id")
-            ON DELETE RESTRICT
-            ON UPDATE CASCADE;
-          `);
-          
-          console.log('   ✅ Foreign key constraint added');
-          migrationsRun++;
-        } catch (fkError) {
-          if (fkError.message.includes('already exists')) {
-            console.log('   ℹ️  Foreign key constraint already exists');
-          } else {
-            throw fkError;
-          }
-        }
-      }
-      
       if (migrationsRun > 0) {
-        console.log(`✅ Migration completed: ${migrationsRun} changes applied to Bills table\n`);
+        console.log(`✅ Bills migration: ${migrationsRun} changes applied\n`);
       } else {
-        console.log('✅ Bills table is up to date\n');
+        console.log('✅ Bills table up to date\n');
       }
       
     } catch (migrationError) {
-      // Check if error is because column already exists
       if (migrationError.message.includes('already exists')) {
-        console.log('✅ Bills table is up to date (columns already exist)\n');
+        console.log('✅ Bills table up to date\n');
       } else {
         console.error('⚠️  Bills migration warning:', migrationError.message);
-        console.error('    Continuing startup...');
-        console.log('');
+        console.log('   Continuing...\n');
       }
     }
     
-    // ============================================
-    // Add more migrations here in the future
-    // ============================================
-    
     console.log('╔════════════════════════════════════════════╗');
-    console.log('║  ✅ ALL MIGRATIONS COMPLETED              ║');
+    console.log('║  ✅ MIGRATIONS COMPLETED                  ║');
     console.log('╚════════════════════════════════════════════╝\n');
     
   } catch (error) {
@@ -374,14 +441,12 @@ const runMigrations = async () => {
     console.error('║  ❌ MIGRATION ERROR                       ║');
     console.error('╚════════════════════════════════════════════╝');
     console.error('Error:', error.message);
-    console.error('Stack:', error.stack);
-    console.log('');
-    console.warn('⚠️  Continuing server startup despite migration error...\n');
+    console.warn('\n⚠️  Continuing startup...\n');
   }
 };
 
 // ============================================
-// START SERVER WITH MIGRATIONS
+// START SERVER
 // ============================================
 const startServer = async () => {
   try {
@@ -394,17 +459,17 @@ const startServer = async () => {
     // Step 3: Start HTTP server
     server.listen(PORT, '0.0.0.0', () => {
       console.log('╔════════════════════════════════════════════╗');
-      console.log('║  🏨 Hotel Management System               ║');
+      console.log('║  ✅ SERVER STARTED SUCCESSFULLY           ║');
       console.log('╚════════════════════════════════════════════╝');
-      console.log(`✅ Server running on port ${PORT}`);
-      console.log(`✅ Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`✅ Socket.IO: Enabled`);
-      console.log(`✅ Uploads: /uploads`);
+      console.log(`🌐 Port: ${PORT}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`🔌 Socket.IO: Active`);
+      console.log(`📁 Uploads: /uploads`);
       if (isProduction) {
-        console.log(`✅ Serving: /dist`);
+        console.log(`📦 Frontend: /dist`);
       }
       console.log('╚════════════════════════════════════════════╝');
-      console.log(`\n🌐 Access your app at: http://localhost:${PORT}\n`);
+      console.log(`\n🚀 Access at: http://localhost:${PORT}\n`);
     });
   } catch (error) {
     console.error('╔════════════════════════════════════════════╗');
@@ -417,7 +482,7 @@ const startServer = async () => {
 };
 
 // ============================================
-// START THE APPLICATION
+// RUN
 // ============================================
 startServer();
 

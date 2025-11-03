@@ -3,34 +3,39 @@ import axios from 'axios';
 // ============================================
 // API CONFIGURATION
 // ============================================
-const isDevelopment = import.meta.env.DEV;
 
-const API_BASE_URL = isDevelopment 
-  ? 'http://localhost:5000/api'
-  : '/api';
+// Determine base URLs based on environment
+const isDev = import.meta.env.DEV;
 
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('🔧 API CONFIGURATION');
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-console.log('Environment:', isDevelopment ? 'Development' : 'Production');
-console.log('Base URL:', API_BASE_URL);
-console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 
+  (isDev 
+    ? 'http://localhost:5000' 
+    : window.location.origin);
+
+export const API_URL = import.meta.env.VITE_API_URL 
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : (isDev 
+      ? 'http://localhost:5000/api' 
+      : `${window.location.origin}/api`);
+
+console.log('🌐 API Configuration:');
+console.log('   Environment:', isDev ? 'Development' : 'Production');
+console.log('   API Base:', API_BASE_URL);
+console.log('   API URL:', API_URL);
 
 // ============================================
-// CREATE AXIOS INSTANCE
+// AXIOS INSTANCE
 // ============================================
+
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: API_URL,
+  timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
   },
-  withCredentials: true,
-  timeout: 30000
 });
 
-// ============================================
-// REQUEST INTERCEPTOR
-// ============================================
+// Request interceptor
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -38,88 +43,101 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    if (isDevelopment) {
-      console.log('📤 API Request:', {
-        method: config.method?.toUpperCase(),
-        url: config.url,
-        data: config.data
-      });
+    // Log requests in development
+    if (isDev) {
+      console.log(`📤 ${config.method.toUpperCase()} ${config.url}`);
     }
     
     return config;
   },
   (error) => {
-    console.error('❌ Request Error:', error);
+    console.error('❌ Request error:', error);
     return Promise.reject(error);
   }
 );
 
-// ============================================
-// RESPONSE INTERCEPTOR
-// ============================================
+// Response interceptor
 api.interceptors.response.use(
   (response) => {
-    if (isDevelopment) {
-      console.log('📥 API Response:', {
-        url: response.config.url,
-        status: response.status,
-        data: response.data
-      });
+    if (isDev) {
+      console.log(`✅ ${response.config.method.toUpperCase()} ${response.config.url}:`, response.status);
     }
     return response;
   },
   (error) => {
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('❌ API ERROR');
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.error('URL:', error.config?.url);
-    console.error('Method:', error.config?.method?.toUpperCase());
-    console.error('Status:', error.response?.status);
-    console.error('Message:', error.message);
-    console.error('Response Data:', error.response?.data);
-    console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    
+    console.error('❌ Response error:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      message: error.response?.data?.message || error.message
+    });
+
+    // Handle authentication errors
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/';
+      if (window.location.pathname !== '/') {
+        window.location.href = '/';
+      }
     }
-    
+
     return Promise.reject(error);
   }
 );
 
 // ============================================
-// AUTHENTICATION API
+// IMAGE URL HELPER
 // ============================================
+
+/**
+ * Convert image path to full URL
+ * @param {string} imagePath - Image path from database (e.g., "/uploads/menu/image.jpg")
+ * @returns {string} Full image URL
+ */
+export const getImageUrl = (imagePath) => {
+  if (!imagePath) return null;
+  
+  // If already a full URL, return as-is
+  if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
+    return imagePath;
+  }
+  
+  // Ensure path starts with /
+  const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
+  
+  return `${API_BASE_URL}${path}`;
+};
+
+// ============================================
+// API ENDPOINTS
+// ============================================
+
+// Auth API
 export const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
   register: (userData) => api.post('/auth/register', userData),
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    window.location.href = '/';
+    return Promise.resolve();
   },
   getCurrentUser: () => api.get('/auth/me'),
+  refreshToken: () => api.post('/auth/refresh'),
 };
 
-// ============================================
-// TABLES API
-// ============================================
+// Tables API
 export const tablesAPI = {
-  getAll: (params) => api.get('/tables', { params }),
+  getAll: () => api.get('/tables'),
   getById: (id) => api.get(`/tables/${id}`),
-  verify: (tableNumber) => api.post('/tables/verify', { tableNumber }),
+  getByNumber: (number) => api.get(`/tables/number/${number}`),
   create: (data) => api.post('/tables', data),
   update: (id, data) => api.put(`/tables/${id}`, data),
-  updateStatus: (id, status) => api.put(`/tables/${id}/status`, { status }),
   delete: (id) => api.delete(`/tables/${id}`),
-  generateQR: (id) => api.post(`/tables/${id}/qr`),
+  updateStatus: (id, status) => api.patch(`/tables/${id}/status`, { status }),
+  getQR: (tableNumber) => `${API_BASE_URL}/api/tables/${tableNumber}/qr`,
 };
 
-// ============================================
-// MENU API
-// ============================================
+// Menu API
 export const menuAPI = {
   getAll: (params) => api.get('/menu', { params }),
   getById: (id) => api.get(`/menu/${id}`),
@@ -129,134 +147,126 @@ export const menuAPI = {
   delete: (id) => api.delete(`/menu/${id}`),
   updateAvailability: (id, isAvailable) => 
     api.patch(`/menu/${id}/availability`, { isAvailable }),
-  bulkUpdateAvailability: (ids, isAvailable) =>
-    api.post('/menu/bulk-availability', { ids, isAvailable }),
-  uploadImage: (formData) => api.post('/menu/upload-image', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  }),
+  
+  // Image upload
+  uploadImage: (formData) => {
+    return api.post('/menu/upload-image', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+  },
+  
   deleteImage: (imageUrl) => api.post('/menu/delete-image', { imageUrl }),
 };
 
-// ============================================
-// ORDERS API (FIXED - NO DEBUG ENDPOINTS)
-// ============================================
+// Orders API
 export const ordersAPI = {
-  // Get all orders
   getAll: (params) => api.get('/orders', { params }),
-  
-  // Get single order by ID
-  getById: (orderId) => api.get(`/orders/${orderId}`),
-  
-  // Get active order for a table
-  getByTable: (tableNumber) => {
-    console.log('🔍 Fetching order for table:', tableNumber);
-    return api.get(`/orders/table/${tableNumber}`);
-  },
-  
-  // Get KOT
-  getKOT: (orderId) => api.get(`/orders/${orderId}/kot`),
-  
-  // ✅ CREATE ORDER - SIMPLIFIED (Backend handles all validation)
-  create: async (orderData) => {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('📤 CREATING ORDER');
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('Data:', JSON.stringify(orderData, null, 2));
-    
-    try {
-      // Send directly to backend - it will validate everything
-      const response = await api.post('/orders', orderData);
-      
-      console.log('✅ Order created successfully');
-      console.log('Order:', response.data);
-      console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      
-      return response;
-    } catch (error) {
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('❌ ORDER ERROR');
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      console.error('Error:', error.response?.data || error.message);
-      console.error('Response:', error.response?.data);
-      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-      throw error;
-    }
-  },
-  
-  // Add items to existing order
-  addItems: async (orderId, items) => {
-    console.log('📤 Adding items to order:', orderId, items);
-    return api.post(`/orders/${orderId}/items`, { items });
-  },
-  
-  // Update order status
-  updateStatus: (orderId, status) => 
-    api.put(`/orders/${orderId}/status`, { status }),
-  
-  // Update order item status
-  updateItemStatus: (orderId, itemId, status, extras = {}) => 
-    api.put(`/orders/${orderId}/items/${itemId}/status`, { 
-      status, 
-      ...extras 
-    }),
-  
-  // Delete item from order
-  deleteItem: (orderId, itemId) => {
-    console.log('🗑️ Deleting item:', { orderId, itemId });
-    return api.delete(`/orders/${orderId}/items/${itemId}`);
-  },
-  
-  // Cancel entire order
-  cancel: (orderId) => {
-    console.log('🗑️ Cancelling order:', orderId);
-    return api.delete(`/orders/${orderId}`);
-  },
+  getById: (id) => api.get(`/orders/${id}`),
+  getByTable: (tableNumber) => api.get(`/orders/table/${tableNumber}`),
+  create: (data) => api.post('/orders', data),
+  update: (id, data) => api.put(`/orders/${id}`, data),
+  updateStatus: (id, status) => api.patch(`/orders/${id}/status`, { status }),
+  addItems: (id, items) => api.post(`/orders/${id}/items`, { items }),
+  updateItem: (orderId, itemId, data) => 
+    api.put(`/orders/${orderId}/items/${itemId}`, data),
+  deleteItem: (orderId, itemId) => 
+    api.delete(`/orders/${orderId}/items/${itemId}`),
+  cancel: (id) => api.post(`/orders/${id}/cancel`),
 };
 
-// ============================================
-// BILLS API
-// ============================================
+// Bills API
 export const billsAPI = {
   getAll: (params) => api.get('/bills', { params }),
-  getById: (billId) => api.get(`/bills/${billId}`),
-  getByOrder: (orderId) => api.get(`/bills/order/${orderId}`),
-  generate: (orderId) => api.post(`/bills/generate/${orderId}`),
-  settle: (billId, paymentData) => 
-    api.post(`/bills/${billId}/settle`, paymentData),
-  print: (billId) => api.get(`/bills/${billId}/print`),
+  getById: (id) => api.get(`/bills/${id}`),
+  generate: (orderId) => api.post('/bills/generate', { orderId }),
+  settle: (id, paymentData) => api.post(`/bills/${id}/settle`, paymentData),
+  print: (id) => api.get(`/bills/${id}/print`),
 };
 
-// ============================================
-// ADMIN/REPORTS API
-// ============================================
+// Admin API
 export const adminAPI = {
   getDashboard: () => api.get('/admin/dashboard'),
-  getRevenueReport: (startDate, endDate) => 
-    api.get('/admin/reports/revenue', { 
-      params: { startDate, endDate } 
-    }),
-  getSalesReport: (startDate, endDate) =>
-    api.get('/admin/reports/sales', {
-      params: { startDate, endDate }
-    }),
-  getMenuPerformance: () => api.get('/admin/reports/menu-performance'),
-  getTableOccupancy: () => api.get('/admin/reports/table-occupancy'),
-  getStaffPerformance: (startDate, endDate) =>
-    api.get('/admin/reports/staff', {
-      params: { startDate, endDate }
-    }),
+  getStats: (params) => api.get('/admin/stats', { params }),
+  getReports: (params) => api.get('/admin/reports', { params }),
+  exportData: (type, params) => api.get(`/admin/export/${type}`, { 
+    params,
+    responseType: 'blob'
+  }),
 };
 
 // ============================================
-// USERS API
+// UTILITY FUNCTIONS
 // ============================================
-export const usersAPI = {
-  getAll: (params) => api.get('/users', { params }),
-  getById: (id) => api.get(`/users/${id}`),
-  create: (data) => api.post('/users', data),
-  update: (id, data) => api.put(`/users/${id}`, data),
-  delete: (id) => api.delete(`/users/${id}`),
-  updateRole: (id, role) => api.put(`/users/${id}/role`, { role }),
+
+/**
+ * Handle API errors consistently
+ * @param {Error} error - Axios error object
+ * @returns {string} User-friendly error message
+ */
+export const handleApiError = (error) => {
+  if (error.response) {
+    // Server responded with error
+    return error.response.data?.message || 
+           error.response.data?.error || 
+           `Server error: ${error.response.status}`;
+  } else if (error.request) {
+    // Request made but no response
+    return 'No response from server. Please check your connection.';
+  } else {
+    // Error setting up request
+    return error.message || 'An unexpected error occurred';
+  }
 };
+
+/**
+ * Download file from blob response
+ * @param {Blob} blob - File blob
+ * @param {string} filename - Filename
+ */
+export const downloadFile = (blob, filename) => {
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.URL.revokeObjectURL(url);
+};
+
+/**
+ * Check if API is reachable
+ * @returns {Promise<boolean>}
+ */
+export const checkApiHealth = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/health`, { 
+      timeout: 5000 
+    });
+    return response.status === 200;
+  } catch (error) {
+    console.error('Health check failed:', error);
+    return false;
+  }
+};
+
+// ============================================
+// EXPORTS
+// ============================================
 
 export default api;
+
+export {
+  api,
+  authAPI,
+  tablesAPI,
+  menuAPI,
+  ordersAPI,
+  billsAPI,
+  adminAPI,
+  handleApiError,
+  downloadFile,
+  checkApiHealth,
+};

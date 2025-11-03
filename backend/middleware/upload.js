@@ -2,7 +2,10 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure upload directories exist
+// ============================================
+// Directory Setup
+// ============================================
+
 const createUploadDirs = () => {
   const dirs = [
     path.join(__dirname, '../public'),
@@ -18,61 +21,86 @@ const createUploadDirs = () => {
   });
 };
 
-// Create directories on module load
 createUploadDirs();
 
-// Storage configuration
+// ============================================
+// Multer Storage Configuration
+// ============================================
+
 const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
+  destination: (req, file, cb) => {
     const uploadPath = path.join(__dirname, '../public/uploads/menu');
     cb(null, uploadPath);
   },
-  filename: function (req, file, cb) {
-    // Generate unique filename: menu-timestamp-randomnumber.ext
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+  filename: (req, file, cb) => {
+    const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
     const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, 'menu-' + uniqueSuffix + ext);
+    const filename = `menu-${uniqueSuffix}${ext}`;
+    cb(null, filename);
   }
 });
 
-// File filter - only allow images
+// ============================================
+// File Filter - Images Only
+// ============================================
+
 const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif|webp/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
+  const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'];
+  const allowedExts = /jpeg|jpg|png|gif|webp/;
+  
+  const extname = allowedExts.test(path.extname(file.originalname).toLowerCase());
+  const mimetype = allowedMimes.includes(file.mimetype);
 
   if (mimetype && extname) {
     return cb(null, true);
-  } else {
-    cb(new Error('Only image files are allowed (jpeg, jpg, png, gif, webp)'));
   }
+  
+  cb(new Error('Only image files (JPEG, PNG, GIF, WEBP) are allowed'));
 };
 
-// Multer configuration
+// ============================================
+// Multer Instance
+// ============================================
+
 const upload = multer({
-  storage: storage,
-  fileFilter: fileFilter,
+  storage,
+  fileFilter,
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB limit
+    fileSize: 5 * 1024 * 1024, // 5MB
+    files: 1
   }
 });
 
-// Helper function to delete file
+// ============================================
+// Helper Functions
+// ============================================
+
 const deleteFile = (filePath) => {
   try {
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-      console.log(`✅ Deleted file: ${filePath}`);
+    const fullPath = filePath.startsWith('/') 
+      ? path.join(__dirname, '../public', filePath)
+      : filePath;
+
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+      console.log(`✅ Deleted file: ${fullPath}`);
       return true;
     }
+    
+    console.log(`⚠️  File not found: ${fullPath}`);
     return false;
   } catch (error) {
-    console.error('❌ Error deleting file:', error);
+    console.error('❌ Error deleting file:', error.message);
     return false;
   }
+};
+
+const getImageUrl = (filename) => {
+  return `/uploads/menu/${filename}`;
 };
 
 module.exports = {
   upload,
-  deleteFile
+  deleteFile,
+  getImageUrl
 };
