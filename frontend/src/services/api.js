@@ -7,12 +7,12 @@ import axios from 'axios';
 // Determine base URLs based on environment
 const isDev = import.meta.env.DEV;
 
-export const API_BASE_URL = import.meta.env.VITE_API_URL || 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 
   (isDev 
     ? 'http://localhost:5000' 
     : window.location.origin);
 
-export const API_URL = import.meta.env.VITE_API_URL 
+const API_URL = import.meta.env.VITE_API_URL 
   ? `${import.meta.env.VITE_API_URL}/api`
   : (isDev 
       ? 'http://localhost:5000/api' 
@@ -92,17 +92,17 @@ api.interceptors.response.use(
 /**
  * Convert image path to full URL
  * @param {string} imagePath - Image path from database
- * @returns {string} Full image URL
+ * @returns {string|null} Full image URL or null
  */
-export const getImageUrl = (imagePath) => {
+const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
   
-  // If already a full URL (Cloudinary URLs), return as-is
+  // If already a full URL (Cloudinary or external), return as-is
   if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
     return imagePath;
   }
   
-  // Local development path
+  // Local development/production path
   const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
   return `${API_BASE_URL}${path}`;
 };
@@ -112,7 +112,7 @@ export const getImageUrl = (imagePath) => {
 // ============================================
 
 // Auth API
-export const authAPI = {
+const authAPI = {
   login: (credentials) => api.post('/auth/login', credentials),
   register: (userData) => api.post('/auth/register', userData),
   logout: () => {
@@ -125,7 +125,7 @@ export const authAPI = {
 };
 
 // Tables API
-export const tablesAPI = {
+const tablesAPI = {
   getAll: () => api.get('/tables'),
   getById: (id) => api.get(`/tables/${id}`),
   getByNumber: (number) => api.get(`/tables/number/${number}`),
@@ -137,7 +137,7 @@ export const tablesAPI = {
 };
 
 // Menu API
-export const menuAPI = {
+const menuAPI = {
   getAll: (params) => api.get('/menu', { params }),
   getById: (id) => api.get(`/menu/${id}`),
   getCategories: () => api.get('/menu/categories'),
@@ -160,7 +160,7 @@ export const menuAPI = {
 };
 
 // Orders API
-export const ordersAPI = {
+const ordersAPI = {
   getAll: (params) => api.get('/orders', { params }),
   getById: (id) => api.get(`/orders/${id}`),
   getByTable: (tableNumber) => api.get(`/orders/table/${tableNumber}`),
@@ -176,7 +176,7 @@ export const ordersAPI = {
 };
 
 // Bills API
-export const billsAPI = {
+const billsAPI = {
   getAll: (params) => api.get('/bills', { params }),
   getById: (id) => api.get(`/bills/${id}`),
   generate: (orderId) => api.post('/bills/generate', { orderId }),
@@ -185,7 +185,7 @@ export const billsAPI = {
 };
 
 // Admin API
-export const adminAPI = {
+const adminAPI = {
   getDashboard: () => api.get('/admin/dashboard'),
   getStats: (params) => api.get('/admin/stats', { params }),
   getReports: (params) => api.get('/admin/reports', { params }),
@@ -204,7 +204,7 @@ export const adminAPI = {
  * @param {Error} error - Axios error object
  * @returns {string} User-friendly error message
  */
-export const handleApiError = (error) => {
+const handleApiError = (error) => {
   if (error.response) {
     // Server responded with error
     return error.response.data?.message || 
@@ -224,7 +224,7 @@ export const handleApiError = (error) => {
  * @param {Blob} blob - File blob
  * @param {string} filename - Filename
  */
-export const downloadFile = (blob, filename) => {
+const downloadFile = (blob, filename) => {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -239,7 +239,7 @@ export const downloadFile = (blob, filename) => {
  * Check if API is reachable
  * @returns {Promise<boolean>}
  */
-export const checkApiHealth = async () => {
+const checkApiHealth = async () => {
   try {
     const response = await axios.get(`${API_BASE_URL}/health`, { 
       timeout: 5000 
@@ -252,12 +252,13 @@ export const checkApiHealth = async () => {
 };
 
 // ============================================
-// EXPORTS
+// EXPORTS (SINGLE EXPORT BLOCK)
 // ============================================
 
 export default api;
 
 export {
+  // API instances
   api,
   authAPI,
   tablesAPI,
@@ -265,7 +266,14 @@ export {
   ordersAPI,
   billsAPI,
   adminAPI,
+  
+  // Helper functions
+  getImageUrl,
   handleApiError,
   downloadFile,
   checkApiHealth,
+  
+  // URLs
+  API_BASE_URL,
+  API_URL
 };
