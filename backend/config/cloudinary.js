@@ -1,13 +1,18 @@
 const cloudinary = require('cloudinary').v2;
+const multer = require('multer');
 
-// Configure Cloudinary with your credentials
+// ============================================
+// CLOUDINARY CONFIGURATION
+// ============================================
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Test connection function
+// ============================================
+// TEST CONNECTION FUNCTION
+// ============================================
 const testConnection = async () => {
   try {
     const result = await cloudinary.api.ping();
@@ -20,7 +25,9 @@ const testConnection = async () => {
   }
 };
 
-// Extract public_id from Cloudinary URL for deletion
+// ============================================
+// EXTRACT PUBLIC_ID FROM CLOUDINARY URL
+// ============================================
 const extractPublicId = (url) => {
   if (!url || !url.includes('cloudinary.com')) {
     return null;
@@ -47,8 +54,101 @@ const extractPublicId = (url) => {
   }
 };
 
+// ============================================
+// ✅ MULTER CONFIGURATION (MEMORY STORAGE)
+// ============================================
+const storage = multer.memoryStorage();
+
+const uploadMenu = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept images only
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('Only image files are allowed!'), false);
+    }
+    cb(null, true);
+  }
+});
+
+// ============================================
+// ✅ UPLOAD TO CLOUDINARY (BUFFER)
+// ============================================
+const uploadToCloudinary = (buffer, originalname) => {
+  return new Promise((resolve, reject) => {
+    const uploadStream = cloudinary.uploader.upload_stream(
+      {
+        folder: 'restaurant/menu',
+        resource_type: 'image',
+        transformation: [
+          { width: 800, height: 800, crop: 'limit' },
+          { quality: 'auto:good' },
+          { fetch_format: 'auto' }
+        ]
+      },
+      (error, result) => {
+        if (error) {
+          console.error('❌ Cloudinary upload error:', error);
+          reject(error);
+        } else {
+          console.log('✅ Uploaded to Cloudinary:', result.secure_url);
+          resolve(result);
+        }
+      }
+    );
+
+    // Write buffer to stream
+    uploadStream.end(buffer);
+  });
+};
+
+// ============================================
+// ✅ DELETE FROM CLOUDINARY
+// ============================================
+const deleteImage = async (imageUrl) => {
+  try {
+    if (!imageUrl) {
+      return { success: false, message: 'No image URL provided' };
+    }
+
+    // Use existing extractPublicId function
+    const publicId = extractPublicId(imageUrl);
+
+    if (!publicId) {
+      console.warn('⚠️  Not a valid Cloudinary URL:', imageUrl);
+      return { success: false, message: 'Not a Cloudinary URL' };
+    }
+
+    console.log('🗑️  Deleting from Cloudinary:', publicId);
+
+    const result = await cloudinary.uploader.destroy(publicId);
+    
+    console.log('✅ Cloudinary delete result:', result);
+
+    return { 
+      success: result.result === 'ok', 
+      message: result.result === 'ok' ? 'Image deleted successfully' : 'Image not found',
+      result 
+    };
+  } catch (error) {
+    console.error('❌ Cloudinary delete error:', error);
+    return { 
+      success: false, 
+      message: error.message 
+    };
+  }
+};
+
+// ============================================
+// EXPORTS
+// ============================================
 module.exports = {
   cloudinary,
   testConnection,
-  extractPublicId
+  extractPublicId,
+  uploadMenu,           // ✅ Added
+  uploadToCloudinary,   // ✅ Added
+  deleteImage           // ✅ Added
 };
