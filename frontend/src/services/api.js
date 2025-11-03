@@ -3,8 +3,6 @@ import axios from 'axios';
 // ============================================
 // API CONFIGURATION
 // ============================================
-
-// Determine base URLs based on environment
 const isDev = import.meta.env.DEV;
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 
@@ -26,7 +24,6 @@ console.log('   API URL:', API_URL);
 // ============================================
 // AXIOS INSTANCE
 // ============================================
-
 const api = axios.create({
   baseURL: API_URL,
   timeout: 30000,
@@ -43,7 +40,6 @@ api.interceptors.request.use(
       config.headers.Authorization = `Bearer ${token}`;
     }
     
-    // Log requests in development
     if (isDev) {
       console.log(`📤 ${config.method.toUpperCase()} ${config.url}`);
     }
@@ -72,7 +68,6 @@ api.interceptors.response.use(
       message: error.response?.data?.message || error.message
     });
 
-    // Handle authentication errors
     if (error.response?.status === 401) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
@@ -88,21 +83,13 @@ api.interceptors.response.use(
 // ============================================
 // IMAGE URL HELPER
 // ============================================
-
-/**
- * Convert image path to full URL
- * @param {string} imagePath - Image path from database
- * @returns {string|null} Full image URL or null
- */
 const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
   
-  // If already a full URL (Cloudinary or external), return as-is
   if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
     return imagePath;
   }
   
-  // Local development/production path
   const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
   return `${API_BASE_URL}${path}`;
 };
@@ -129,6 +116,7 @@ const tablesAPI = {
   getAll: () => api.get('/tables'),
   getById: (id) => api.get(`/tables/${id}`),
   getByNumber: (number) => api.get(`/tables/number/${number}`),
+  verify: (tableNumber) => api.post('/tables/verify', { tableNumber }),
   create: (data) => api.post('/tables', data),
   update: (id, data) => api.put(`/tables/${id}`, data),
   delete: (id) => api.delete(`/tables/${id}`),
@@ -146,8 +134,6 @@ const menuAPI = {
   delete: (id) => api.delete(`/menu/${id}`),
   updateAvailability: (id, isAvailable) => 
     api.patch(`/menu/${id}/availability`, { isAvailable }),
-  
-  // Image upload
   uploadImage: (formData) => {
     return api.post('/menu/upload-image', formData, {
       headers: {
@@ -155,7 +141,6 @@ const menuAPI = {
       },
     });
   },
-  
   deleteImage: (imageUrl) => api.post('/menu/delete-image', { imageUrl }),
 };
 
@@ -179,7 +164,11 @@ const ordersAPI = {
 const billsAPI = {
   getAll: (params) => api.get('/bills', { params }),
   getById: (id) => api.get(`/bills/${id}`),
-  generate: (orderId) => api.post('/bills/generate', { orderId }),
+  getByOrder: (orderId) => api.get(`/bills/order/${orderId}`),
+  
+  // ✅ FIXED: orderId in URL, not body
+  generate: (orderId) => api.post(`/bills/generate/${orderId}`),
+  
   settle: (id, paymentData) => api.post(`/bills/${id}/settle`, paymentData),
   print: (id) => api.get(`/bills/${id}/print`),
 };
@@ -198,32 +187,18 @@ const adminAPI = {
 // ============================================
 // UTILITY FUNCTIONS
 // ============================================
-
-/**
- * Handle API errors consistently
- * @param {Error} error - Axios error object
- * @returns {string} User-friendly error message
- */
 const handleApiError = (error) => {
   if (error.response) {
-    // Server responded with error
     return error.response.data?.message || 
            error.response.data?.error || 
            `Server error: ${error.response.status}`;
   } else if (error.request) {
-    // Request made but no response
     return 'No response from server. Please check your connection.';
   } else {
-    // Error setting up request
     return error.message || 'An unexpected error occurred';
   }
 };
 
-/**
- * Download file from blob response
- * @param {Blob} blob - File blob
- * @param {string} filename - Filename
- */
 const downloadFile = (blob, filename) => {
   const url = window.URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -235,10 +210,6 @@ const downloadFile = (blob, filename) => {
   window.URL.revokeObjectURL(url);
 };
 
-/**
- * Check if API is reachable
- * @returns {Promise<boolean>}
- */
 const checkApiHealth = async () => {
   try {
     const response = await axios.get(`${API_BASE_URL}/health`, { 
@@ -252,13 +223,11 @@ const checkApiHealth = async () => {
 };
 
 // ============================================
-// EXPORTS (SINGLE EXPORT BLOCK)
+// EXPORTS
 // ============================================
-
 export default api;
 
 export {
-  // API instances
   api,
   authAPI,
   tablesAPI,
@@ -266,14 +235,10 @@ export {
   ordersAPI,
   billsAPI,
   adminAPI,
-  
-  // Helper functions
   getImageUrl,
   handleApiError,
   downloadFile,
   checkApiHealth,
-  
-  // URLs
   API_BASE_URL,
   API_URL
 };
