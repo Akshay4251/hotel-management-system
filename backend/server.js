@@ -11,6 +11,7 @@ const fs = require('fs');
 
 const { connectDB, sequelize } = require('./config/database');
 const socketHandler = require('./socket/socketHandler');
+const { testConnection } = require('./config/cloudinary');
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -31,10 +32,11 @@ const isDevelopment = !isProduction;
 const PORT = process.env.PORT || 5000;
 
 console.log('╔════════════════════════════════════════════╗');
-console.log('║  🏨 Hotel Management System - Starting... ║');
+console.log('║  🏨 Hotel Management System               ║');
 console.log('╚════════════════════════════════════════════╝');
-console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-console.log(`🔌 Port: ${PORT}`);
+console.log('🌍 Environment:', process.env.NODE_ENV || 'development');
+console.log('🔌 Port:', PORT);
+console.log('');
 
 // ============================================
 // SOCKET.IO CONFIGURATION
@@ -52,27 +54,24 @@ const io = socketIo(server, {
   pingInterval: 25000
 });
 
+// Make io accessible to routes
 app.set('io', io);
 
 // ============================================
-// BASIC MIDDLEWARE (ORDER MATTERS!)
+// MIDDLEWARE CONFIGURATION
 // ============================================
 
-// 1. Compression
+// Compression
 app.use(compression());
 
-// 2. Body parsers (BEFORE routes)
+// Body parsing (with increased limits for image upload)
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// 3. Logging
-if (isDevelopment) {
-  app.use(morgan('dev'));
-} else {
-  app.use(morgan('combined'));
-}
+// Logging
+app.use(morgan(isDevelopment ? 'dev' : 'combined'));
 
-// 4. CORS (Development)
+// CORS (Development only)
 if (isDevelopment) {
   app.use(cors({
     origin: ['http://localhost:5173', 'http://localhost:3000', 'http://localhost:5174'],
@@ -81,7 +80,7 @@ if (isDevelopment) {
   }));
 }
 
-// 5. Security Headers (Relaxed for static files)
+// Security headers (relaxed for static files)
 app.use(helmet({
   contentSecurityPolicy: false,
   crossOriginEmbedderPolicy: false,
@@ -95,22 +94,23 @@ const publicPath = path.join(__dirname, 'public');
 const uploadsPath = path.join(__dirname, 'public/uploads');
 const menuUploadsPath = path.join(__dirname, 'public/uploads/menu');
 
-// Ensure directories exist
-[publicPath, uploadsPath, menuUploadsPath].forEach(dir => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`✅ Created directory: ${dir}`);
-  }
-});
+// Create directories if they don't exist (for local development)
+if (!isProduction && process.env.STORAGE_MODE !== 'cloudinary') {
+  [publicPath, uploadsPath, menuUploadsPath].forEach(dir => {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+      console.log(`✅ Created directory: ${dir}`);
+    }
+  });
+}
 
-console.log('📁 Uploads path:', uploadsPath);
+console.log('📁 Public path:', publicPath);
 
-// Count existing uploads
+// Count existing uploads (if using local storage)
 if (fs.existsSync(menuUploadsPath)) {
   const files = fs.readdirSync(menuUploadsPath);
-  console.log(`📸 Found ${files.length} images in menu uploads`);
-  if (files.length > 0 && files.length <= 3) {
-    console.log('   Sample:', files.slice(0, 3).join(', '));
+  if (files.length > 0) {
+    console.log(`📸 Found ${files.length} images in local uploads`);
   }
 }
 
@@ -121,7 +121,7 @@ app.use(express.static(publicPath, {
   lastModified: true
 }));
 
-// Explicit uploads route with CORS headers
+// Serve uploads with proper headers
 app.use('/uploads', (req, res, next) => {
   res.header('Cross-Origin-Resource-Policy', 'cross-origin');
   res.header('Access-Control-Allow-Origin', '*');
@@ -134,7 +134,7 @@ app.use('/uploads', (req, res, next) => {
   fallthrough: true
 }));
 
-console.log('✅ Static file serving configured for /uploads');
+console.log('✅ Static file serving configured');
 
 // ============================================
 // PRODUCTION FRONTEND SERVING
@@ -142,20 +142,14 @@ console.log('✅ Static file serving configured for /uploads');
 if (isProduction) {
   const distPath = path.join(__dirname, 'dist');
   
-  console.log('📁 Checking dist folder:', distPath);
+  console.log('📦 Checking frontend build:', distPath);
   
   if (fs.existsSync(distPath)) {
     const files = fs.readdirSync(distPath);
-    console.log('✅ dist folder exists');
-    console.log(`   Contains: ${files.join(', ')}`);
+    console.log('✅ Frontend build found');
+    console.log(`   Files: ${files.join(', ')}`);
     
-    const assetsPath = path.join(distPath, 'assets');
-    if (fs.existsSync(assetsPath)) {
-      const assetFiles = fs.readdirSync(assetsPath);
-      console.log(`   📦 assets: ${assetFiles.length} files`);
-    }
-    
-    // Serve static files from dist
+    // Serve frontend build
     app.use(express.static(distPath, {
       index: false,
       dotfiles: 'ignore',
@@ -166,18 +160,21 @@ if (isProduction) {
     
     console.log('✅ Serving frontend from /dist');
   } else {
-    console.warn('⚠️  dist folder NOT found - frontend will not be served');
+    console.warn('⚠️  Frontend build not found - run npm run build in frontend folder');
   }
 }
 
 // ============================================
-// HEALTH CHECK & DEBUG ROUTES
+// API ROUTES
 // ============================================
+
+// Health check
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'OK',
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
+    storage: process.env.STORAGE_MODE || 'local',
     uptime: Math.floor(process.uptime()),
     memory: {
       used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) + 'MB',
@@ -186,38 +183,14 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Debug route for checking uploads
-app.get('/api/debug/uploads', (req, res) => {
-  try {
-    const menuPath = path.join(__dirname, 'public/uploads/menu');
-    const files = fs.existsSync(menuPath) 
-      ? fs.readdirSync(menuPath)
-      : [];
-    
-    res.json({
-      uploadsPath: menuPath,
-      exists: fs.existsSync(menuPath),
-      fileCount: files.length,
-      files: files.slice(0, 10),
-      sampleUrls: files.slice(0, 3).map(f => `/uploads/menu/${f}`)
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
-    });
-  }
-});
-
-// ============================================
-// API ROUTES
-// ============================================
+// API root
 app.get('/api', (req, res) => {
   res.json({
     message: '🏨 Hotel Management System API',
     version: '2.0.0',
     status: 'running',
     environment: process.env.NODE_ENV || 'development',
+    storage: process.env.STORAGE_MODE || 'local',
     endpoints: {
       auth: '/api/auth',
       tables: '/api/tables',
@@ -229,6 +202,31 @@ app.get('/api', (req, res) => {
   });
 });
 
+// Debug route for uploads (development only)
+if (isDevelopment) {
+  app.get('/api/debug/uploads', (req, res) => {
+    try {
+      const menuPath = path.join(__dirname, 'public/uploads/menu');
+      const files = fs.existsSync(menuPath) ? fs.readdirSync(menuPath) : [];
+      
+      res.json({
+        storage: process.env.STORAGE_MODE || 'local',
+        uploadsPath: menuPath,
+        exists: fs.existsSync(menuPath),
+        fileCount: files.length,
+        files: files.slice(0, 10),
+        sampleUrls: files.slice(0, 3).map(f => `/uploads/menu/${f}`)
+      });
+    } catch (error) {
+      res.status(500).json({ 
+        success: false, 
+        error: error.message 
+      });
+    }
+  });
+}
+
+// Mount API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tables', tableRoutes);
 app.use('/api/menu', menuRoutes);
@@ -237,7 +235,7 @@ app.use('/api/bills', billRoutes);
 app.use('/api/admin', adminRoutes);
 
 // ============================================
-// SPA FALLBACK (PRODUCTION ONLY - MUST BE LAST)
+// SPA FALLBACK (PRODUCTION)
 // ============================================
 if (isProduction) {
   app.get('*', (req, res) => {
@@ -256,9 +254,15 @@ if (isProduction) {
       res.sendFile(indexPath);
     } else {
       res.status(500).send(`
-        <h1>Application Error</h1>
-        <p>index.html not found. Please rebuild the frontend:</p>
-        <pre>cd frontend && npm run build</pre>
+        <!DOCTYPE html>
+        <html>
+          <head><title>Error</title></head>
+          <body>
+            <h1>Application Error</h1>
+            <p>Frontend build not found. Please build the frontend:</p>
+            <pre>cd frontend && npm run build</pre>
+          </body>
+        </html>
       `);
     }
   });
@@ -279,7 +283,7 @@ if (isDevelopment) {
 }
 
 // ============================================
-// ERROR HANDLER (MUST BE LAST)
+// ERROR HANDLER (GLOBAL)
 // ============================================
 app.use((err, req, res, next) => {
   console.error('╔════════════════════════════════════╗');
@@ -292,6 +296,16 @@ app.use((err, req, res, next) => {
     console.error('Stack:', err.stack);
   }
   console.error('');
+  
+  // Multer errors
+  if (err.name === 'MulterError') {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({
+        success: false,
+        message: 'File size too large. Maximum size is 5MB'
+      });
+    }
+  }
   
   const statusCode = err.status || err.statusCode || 500;
   
@@ -343,13 +357,13 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 // ============================================
 const runMigrations = async () => {
   try {
-    console.log('\n╔════════════════════════════════════════════╗');
+    console.log('\n╔═��══════════════════════════════════════════╗');
     console.log('║  🔧 RUNNING DATABASE MIGRATIONS           ║');
     console.log('╚════════════════════════════════════════════╝\n');
     
-    // Migration 1: Bills table structure
+    // Migration 1: Check Bills table structure
     try {
-      console.log('🔍 Checking Bills table...');
+      console.log('🔍 Checking Bills table structure...');
       
       const [currentColumns] = await sequelize.query(`
         SELECT column_name, data_type, is_nullable
@@ -359,8 +373,9 @@ const runMigrations = async () => {
       `);
       
       const columnNames = currentColumns.map(col => col.column_name);
-      console.log(`   Current columns (${columnNames.length}):`, columnNames.join(', '));
+      console.log(`   Current columns (${columnNames.length}):`, columnNames.slice(0, 5).join(', '), '...');
       
+      // Required columns for Bills table
       const requiredColumns = {
         tableId: { type: 'UUID', nullable: true },
         taxAmount: { type: 'DECIMAL(10,2)', nullable: false, default: 0 },
@@ -375,6 +390,7 @@ const runMigrations = async () => {
       
       let migrationsRun = 0;
       
+      // Add missing columns
       for (const [columnName, config] of Object.entries(requiredColumns)) {
         if (!columnNames.includes(columnName)) {
           console.log(`   📝 Adding column: ${columnName}`);
@@ -397,9 +413,9 @@ const runMigrations = async () => {
         }
       }
       
-      // Update existing bills
+      // Update existing bills from orders if needed
       if (migrationsRun > 0) {
-        console.log('   📝 Updating existing bills...');
+        console.log('   📝 Updating existing bills from orders...');
         
         await sequelize.query(`
           UPDATE "Bills" b
@@ -414,21 +430,21 @@ const runMigrations = async () => {
             AND (b."tableId" IS NULL OR b."subtotal" = 0);
         `);
         
-        console.log('   ✅ Existing bills updated');
+        console.log('   ✅ Bills updated');
       }
       
       if (migrationsRun > 0) {
-        console.log(`✅ Bills migration: ${migrationsRun} changes applied\n`);
+        console.log(`✅ Bills migration completed: ${migrationsRun} changes applied\n`);
       } else {
-        console.log('✅ Bills table up to date\n');
+        console.log('✅ Bills table is up to date\n');
       }
       
     } catch (migrationError) {
       if (migrationError.message.includes('already exists')) {
-        console.log('✅ Bills table up to date\n');
+        console.log('✅ Bills table is up to date\n');
       } else {
         console.error('⚠️  Bills migration warning:', migrationError.message);
-        console.log('   Continuing...\n');
+        console.log('   Continuing startup...\n');
       }
     }
     
@@ -441,49 +457,80 @@ const runMigrations = async () => {
     console.error('║  ❌ MIGRATION ERROR                       ║');
     console.error('╚════════════════════════════════════════════╝');
     console.error('Error:', error.message);
-    console.warn('\n⚠️  Continuing startup...\n');
+    console.warn('\n⚠️  Continuing startup despite migration error...\n');
   }
 };
 
 // ============================================
-// START SERVER
+// SERVER STARTUP
 // ============================================
 const startServer = async () => {
   try {
-    // Step 1: Connect to database
-    await connectDB();
+    console.log('╔════════════════════════════════════════════╗');
+    console.log('║  🚀 STARTING SERVER                       ║');
+    console.log('╚════════════════════════════════════════════╝\n');
     
-    // Step 2: Run migrations
+    // Step 1: Connect to database
+    console.log('📊 Connecting to database...');
+    await connectDB();
+    console.log('✅ Database connected\n');
+    
+    // Step 2: Test Cloudinary connection if enabled
+    if (process.env.STORAGE_MODE === 'cloudinary' || isProduction) {
+      console.log('☁️  Testing Cloudinary connection...');
+      const cloudinaryConnected = await testConnection();
+      if (!cloudinaryConnected && process.env.STORAGE_MODE === 'cloudinary') {
+        console.error('⚠️  Cloudinary connection failed but STORAGE_MODE=cloudinary');
+        console.error('   Images will not upload correctly!');
+      }
+      console.log('');
+    } else {
+      console.log('💾 Using local storage for images\n');
+    }
+    
+    // Step 3: Run database migrations
     await runMigrations();
     
-    // Step 3: Start HTTP server
+    // Step 4: Start HTTP server
     server.listen(PORT, '0.0.0.0', () => {
       console.log('╔════════════════════════════════════════════╗');
       console.log('║  ✅ SERVER STARTED SUCCESSFULLY           ║');
       console.log('╚════════════════════════════════════════════╝');
       console.log(`🌐 Port: ${PORT}`);
       console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📁 Storage: ${process.env.STORAGE_MODE === 'cloudinary' ? 'Cloudinary ☁️' : 'Local 💾'}`);
       console.log(`🔌 Socket.IO: Active`);
-      console.log(`📁 Uploads: /uploads`);
+      
       if (isProduction) {
-        console.log(`📦 Frontend: /dist`);
+        console.log(`📦 Frontend: Serving from /dist`);
+      } else {
+        console.log(`🔧 Development mode: Frontend on separate port`);
       }
+      
       console.log('╚════════════════════════════════════════════╝');
-      console.log(`\n🚀 Access at: http://localhost:${PORT}\n`);
+      console.log(`\n🚀 Server ready at: http://localhost:${PORT}`);
+      console.log(`📝 API Documentation: http://localhost:${PORT}/api\n`);
     });
+    
   } catch (error) {
     console.error('╔════════════════════════════════════════════╗');
     console.error('║  ❌ FAILED TO START SERVER                ║');
     console.error('╚════════════════════════════════════════════╝');
     console.error('Error:', error.message);
     console.error('Stack:', error.stack);
+    console.error('\nPossible issues:');
+    console.error('1. Database connection failed - check DATABASE_URL');
+    console.error('2. Port already in use - check PORT env variable');
+    console.error('3. Missing environment variables - check .env file');
+    console.error('4. Cloudinary credentials invalid - check CLOUDINARY_* variables\n');
     process.exit(1);
   }
 };
 
 // ============================================
-// RUN
+// START THE APPLICATION
 // ============================================
 startServer();
 
+// Export for testing
 module.exports = { app, server, io };

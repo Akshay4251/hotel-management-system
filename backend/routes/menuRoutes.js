@@ -1,11 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { MenuItem } = require('../models');
-const { upload, deleteFile, getImageUrl } = require('../middleware/upload');
-const path = require('path');
+const { upload, deleteFile, getImageUrl, useCloudinary } = require('../middleware/upload');
 
 // ============================================
-// VALIDATION HELPERS
+// VALIDATION HELPER
 // ============================================
 
 const validateMenuItemData = (data) => {
@@ -30,10 +29,7 @@ const validateMenuItemData = (data) => {
 // GET ROUTES
 // ============================================
 
-/**
- * GET /api/menu
- * Fetch all menu items with optional filters
- */
+// GET /api/menu - Get all menu items
 router.get('/', async (req, res) => {
   try {
     const { category, isVeg, available } = req.query;
@@ -65,10 +61,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-/**
- * GET /api/menu/categories
- * Get all unique categories
- */
+// GET /api/menu/categories - Get unique categories
 router.get('/categories', async (req, res) => {
   try {
     const categories = await MenuItem.findAll({
@@ -84,8 +77,7 @@ router.get('/categories', async (req, res) => {
     
     res.json({ 
       success: true, 
-      data: categoryList,
-      count: categoryList.length
+      data: categoryList
     });
   } catch (error) {
     console.error('❌ Error fetching categories:', error);
@@ -97,10 +89,7 @@ router.get('/categories', async (req, res) => {
   }
 });
 
-/**
- * GET /api/menu/:id
- * Get single menu item by ID
- */
+// GET /api/menu/:id - Get single menu item
 router.get('/:id', async (req, res) => {
   try {
     const menuItem = await MenuItem.findByPk(req.params.id);
@@ -127,10 +116,7 @@ router.get('/:id', async (req, res) => {
 // IMAGE UPLOAD ROUTE
 // ============================================
 
-/**
- * POST /api/menu/upload-image
- * Upload menu item image
- */
+// POST /api/menu/upload-image - Upload image
 router.post('/upload-image', upload.single('image'), async (req, res) => {
   try {
     if (!req.file) {
@@ -140,30 +126,25 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
       });
     }
 
-    const imageUrl = getImageUrl(req.file.filename);
+    const imageUrl = getImageUrl(req.file);
     
-    console.log('═══════════════════════════════════');
     console.log('✅ IMAGE UPLOADED SUCCESSFULLY');
-    console.log('═══════════════════════════════════');
-    console.log('📁 Filename:', req.file.filename);
-    console.log('📍 Disk Path:', req.file.path);
-    console.log('🌐 URL Path:', imageUrl);
+    console.log('📁 Storage:', useCloudinary ? 'Cloudinary' : 'Local');
+    console.log('🌐 URL:', imageUrl);
     console.log('📦 Size:', (req.file.size / 1024).toFixed(2), 'KB');
-    console.log('═══════════════════════════════════\n');
     
     res.json({
       success: true,
       message: 'Image uploaded successfully',
       imageUrl,
-      filename: req.file.filename,
+      storage: useCloudinary ? 'cloudinary' : 'local',
       size: req.file.size
     });
   } catch (error) {
     console.error('❌ Image upload error:', error);
     
-    // Clean up file if it was uploaded but processing failed
     if (req.file) {
-      deleteFile(req.file.path);
+      await deleteFile(getImageUrl(req.file));
     }
     
     res.status(500).json({
@@ -178,20 +159,13 @@ router.post('/upload-image', upload.single('image'), async (req, res) => {
 // CREATE ROUTE
 // ============================================
 
-/**
- * POST /api/menu
- * Create new menu item
- */
+// POST /api/menu - Create menu item
 router.post('/', async (req, res) => {
   try {
-    console.log('═══════════════════════════════════');
-    console.log('📝 CREATING MENU ITEM');
-    console.log('═══════════════════════════════════');
+    console.log('📝 Creating menu item...');
     
-    // Validate input
     const validationErrors = validateMenuItemData(req.body);
     if (validationErrors.length > 0) {
-      console.log('❌ Validation failed:', validationErrors);
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
@@ -213,28 +187,13 @@ router.post('/', async (req, res) => {
       tags: Array.isArray(req.body.tags) ? req.body.tags : []
     };
 
-    console.log('Data:', {
-      name: menuItemData.name,
-      category: menuItemData.category,
-      price: menuItemData.price,
-      image: menuItemData.image || 'NO IMAGE'
-    });
-
     const menuItem = await MenuItem.create(menuItemData);
     
-    console.log('✅ Created successfully');
-    console.log('   ID:', menuItem.id);
-    console.log('   Name:', menuItem.name);
-    console.log('   Image:', menuItem.image || 'NO IMAGE');
-    console.log('═══════════════════════════════════\n');
+    console.log('✅ Menu item created:', menuItem.name);
     
-    // Emit socket event if available
     const io = req.app.get('io');
     if (io) {
-      io.emit('menu-updated', { 
-        action: 'created', 
-        data: menuItem 
-      });
+      io.emit('menu-updated', { action: 'created', data: menuItem });
     }
     
     res.status(201).json({ 
@@ -245,9 +204,8 @@ router.post('/', async (req, res) => {
   } catch (error) {
     console.error('❌ Error creating menu item:', error);
     
-    // If there's an image in the request, clean it up
     if (req.body.image) {
-      deleteFile(req.body.image);
+      await deleteFile(req.body.image);
     }
     
     res.status(500).json({ 
@@ -259,13 +217,10 @@ router.post('/', async (req, res) => {
 });
 
 // ============================================
-// UPDATE ROUTES
+// UPDATE ROUTES  
 // ============================================
 
-/**
- * PUT /api/menu/:id
- * Update menu item
- */
+// PUT /api/menu/:id - Update menu item
 router.put('/:id', async (req, res) => {
   try {
     const menuItem = await MenuItem.findByPk(req.params.id);
@@ -277,12 +232,7 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    console.log('═══════════════════════════════════');
-    console.log('📝 UPDATING MENU ITEM');
-    console.log('═══════════════════════════════════');
-    console.log('Item:', menuItem.name);
-    console.log('Old image:', menuItem.image || 'NONE');
-    console.log('New image:', req.body.image !== undefined ? (req.body.image || 'REMOVED') : 'UNCHANGED');
+    console.log('📝 Updating menu item:', menuItem.name);
 
     const oldImage = menuItem.image;
 
@@ -302,23 +252,16 @@ router.put('/:id', async (req, res) => {
 
     await menuItem.update(updatedData);
 
-    // Delete old image if it was replaced with a new one
+    // Delete old image if replaced
     if (oldImage && req.body.image && oldImage !== req.body.image) {
-      deleteFile(oldImage);
-      console.log('🗑️  Old image deleted:', oldImage);
+      await deleteFile(oldImage);
     }
     
-    console.log('✅ Updated successfully');
-    console.log('   Final image:', menuItem.image || 'NO IMAGE');
-    console.log('═══════════════════════════════════\n');
+    console.log('✅ Menu item updated successfully');
     
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
-      io.emit('menu-updated', { 
-        action: 'updated', 
-        data: menuItem 
-      });
+      io.emit('menu-updated', { action: 'updated', data: menuItem });
     }
     
     res.json({ 
@@ -336,10 +279,7 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-/**
- * PATCH /api/menu/:id/availability
- * Toggle availability status
- */
+// PATCH /api/menu/:id/availability - Toggle availability
 router.patch('/:id/availability', async (req, res) => {
   try {
     const { isAvailable } = req.body;
@@ -364,13 +304,9 @@ router.patch('/:id/availability', async (req, res) => {
     
     console.log(`✅ ${menuItem.name} availability: ${menuItem.isAvailable}`);
     
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
-      io.emit('menu-updated', { 
-        action: 'availability', 
-        data: menuItem 
-      });
+      io.emit('menu-updated', { action: 'availability', data: menuItem });
     }
     
     res.json({ 
@@ -392,10 +328,7 @@ router.patch('/:id/availability', async (req, res) => {
 // DELETE ROUTES
 // ============================================
 
-/**
- * DELETE /api/menu/:id
- * Delete menu item and its image
- */
+// DELETE /api/menu/:id - Delete menu item
 router.delete('/:id', async (req, res) => {
   try {
     const menuItem = await MenuItem.findByPk(req.params.id);
@@ -410,23 +343,18 @@ router.delete('/:id', async (req, res) => {
     const itemName = menuItem.name;
     const itemImage = menuItem.image;
 
-    // Delete from database
     await menuItem.destroy();
 
-    // Delete associated image file
+    // Delete associated image
     if (itemImage) {
-      deleteFile(itemImage);
+      await deleteFile(itemImage);
     }
     
     console.log('✅ Menu item deleted:', itemName);
     
-    // Emit socket event
     const io = req.app.get('io');
     if (io) {
-      io.emit('menu-updated', { 
-        action: 'deleted', 
-        id: req.params.id 
-      });
+      io.emit('menu-updated', { action: 'deleted', id: req.params.id });
     }
     
     res.json({ 
@@ -443,10 +371,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-/**
- * POST /api/menu/delete-image
- * Delete orphaned image file
- */
+// POST /api/menu/delete-image - Delete orphaned image
 router.post('/delete-image', async (req, res) => {
   try {
     const { imageUrl } = req.body;
@@ -458,7 +383,7 @@ router.post('/delete-image', async (req, res) => {
       });
     }
 
-    const deleted = deleteFile(imageUrl);
+    const deleted = await deleteFile(imageUrl);
 
     if (deleted) {
       res.json({
@@ -479,32 +404,6 @@ router.post('/delete-image', async (req, res) => {
       error: error.message
     });
   }
-});
-
-// ============================================
-// ERROR HANDLING MIDDLEWARE
-// ============================================
-
-router.use((error, req, res, next) => {
-  if (error instanceof multer.MulterError) {
-    if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({
-        success: false,
-        message: 'File size too large. Maximum size is 5MB'
-      });
-    }
-    if (error.code === 'LIMIT_UNEXPECTED_FILE') {
-      return res.status(400).json({
-        success: false,
-        message: 'Unexpected field name. Use "image" field'
-      });
-    }
-  }
-  
-  res.status(500).json({
-    success: false,
-    message: error.message || 'Internal server error'
-  });
 });
 
 module.exports = router;

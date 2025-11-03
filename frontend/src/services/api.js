@@ -91,20 +91,19 @@ api.interceptors.response.use(
 
 /**
  * Convert image path to full URL
- * @param {string} imagePath - Image path from database (e.g., "/uploads/menu/image.jpg")
+ * @param {string} imagePath - Image path from database
  * @returns {string} Full image URL
  */
 export const getImageUrl = (imagePath) => {
   if (!imagePath) return null;
   
-  // If already a full URL, return as-is
+  // If already a full URL (Cloudinary URLs), return as-is
   if (imagePath.startsWith('http://') || imagePath.startsWith('https://')) {
     return imagePath;
   }
   
-  // Ensure path starts with /
+  // Local development path
   const path = imagePath.startsWith('/') ? imagePath : `/${imagePath}`;
-  
   return `${API_BASE_URL}${path}`;
 };
 
